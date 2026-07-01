@@ -175,17 +175,53 @@ def velvia_layer_weights():
 # =========================================================================
 # Cascade builders
 # =========================================================================
+def _find_anchor(xs, ys, td, increasing):
+    """Find x where digitized curve xs->ys crosses target density td.
+
+    xs/ys must be sorted by increasing exposure (xs ascending). `increasing`
+    says which direction density moves with exposure for this curve: True for
+    negative/print curves (density rises with exposure, e.g. Polymax), False
+    for reversal dye layers (density falls with exposure). Clamps to the
+    nearest endpoint if td is outside the digitized range.
+
+    Scans from index 0 — the well-behaved, non-solarized end of every curve
+    in this dataset — and returns the first bracketing crossing, which is the
+    physically correct one even though several of the digitized curves wobble
+    non-monotonically further out (Polymax grades 0/1 dip near Dmax; all three
+    Velvia dye layers reverse/solarize at the extreme-overexposure tail). To
+    keep that assumption honest, raise instead of silently misfiring if the
+    curve isn't monotonic in the region actually scanned before the crossing.
+    """
+    if increasing:
+        if td<=ys[0]: return xs[0]
+        if td>=ys[-1]: return xs[-1]
+        for i in range(len(xs)-1):
+            if ys[i]>ys[i+1]:
+                raise ValueError(f"_find_anchor: curve not monotonic before crossing (index {i}: {ys[i]} > {ys[i+1]})")
+            if ys[i]==ys[i+1]:
+                if td==ys[i]: return xs[i]
+                continue
+            if ys[i]<=td<=ys[i+1]:
+                t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
+    else:
+        if td>=ys[0]: return xs[0]
+        if td<=ys[-1]: return xs[-1]
+        for i in range(len(xs)-1):
+            if ys[i]<ys[i+1]:
+                raise ValueError(f"_find_anchor: curve not monotonic before crossing (index {i}: {ys[i]} < {ys[i+1]})")
+            if ys[i]==ys[i+1]:
+                if td==ys[i]: return xs[i]
+                continue
+            if ys[i]>=td>=ys[i+1]:
+                t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
+    raise ValueError("_find_anchor: target density not found in curve range")
+
 def build_trix_cascade(paper):
     """Tri-X dev7 negative × Polymax paper → transfer function E→reflectance."""
     nxs,nys=_sc(TRIX_DEV7); pxs,pys=_sc(paper)
     na=0.5*(nxs[0]+nxs[-1]); dn=_il(nxs,nys,na); pdm=min(pys)
-    td=pdm-math.log10(0.18); lhg=pxs[0]
-    if td<=pys[0]: lhg=pxs[0]
-    elif td>=pys[-1]: lhg=pxs[-1]
-    else:
-        for i in range(len(pxs)-1):
-            if pys[i]<=td<=pys[i+1]:
-                t=(td-pys[i])/(pys[i+1]-pys[i]); lhg=pxs[i]*(1-t)+pxs[i+1]*t; break
+    td=pdm-math.log10(0.18)
+    lhg=_find_anchor(pxs,pys,td,increasing=True)
     pl=lhg+dn
     def xfer(E):
         lh=nxs[0]-10 if E<=1e-9 else na+math.log10(E/GREY)
@@ -196,13 +232,9 @@ def build_trix_cascade(paper):
 def build_velvia_layer(curve, gamma_adj):
     """Single Velvia dye layer: reversal curve + parametric contrast."""
     xs,ys=_sc(curve); dm=min(ys)
-    # Anchor: find logH where D gives 18% transmittance
+    # Anchor: find logH where D gives 18% transmittance (reversal: D falls with exposure)
     td=dm-math.log10(0.18)  # target D
-    anc=xs[0]
-    # Reversal: D decreases with exposure, so search for td from high D to low
-    for i in range(len(xs)-1):
-        if (ys[i]>=td>=ys[i+1]):
-            t=(td-ys[i])/(ys[i+1]-ys[i]); anc=xs[i]*(1-t)+xs[i+1]*t; break
+    anc=_find_anchor(xs,ys,td,increasing=False)
     def xfer(E):
         lh=xs[0]-10 if E<=1e-9 else anc+math.log10(E/GREY)
         D=_il(xs,ys,lh); T=10**(-(D-dm))
