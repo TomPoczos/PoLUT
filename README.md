@@ -5,9 +5,9 @@
 Physically grounded film emulation as .cube LUTs for darktable (or any software supporting 3D LUTs). These replace your tone mapper — they do the complete scene-to-display job that AgX, filmic, or sigmoid would otherwise handle.
 
 **Tri-X 400** — black and white. 6 contrast levels × 6 Wratten glass filters = 36 LUTs per variant.
-**Velvia 50** — color reversal (slide film). 6 contrast levels, no filters = 6 LUTs per variant.
+**Velvia 50** — color reversal (slide film). 7 looks (6 parametric contrast levels + one real print-paper look), no filters = 7 LUTs per variant.
 
-Each film ships in two variants: **classic** (pure film physics, no perceptual corrections) and **modern** (adds Helmholtz-Kohlrausch perceptual brightness correction). Total: 84 LUTs.
+Each film ships in two variants: **classic** (pure film physics, no perceptual corrections) and **modern** (adds Helmholtz-Kohlrausch perceptual brightness correction). Total: 86 LUTs.
 
 ## What these replicate
 
@@ -15,7 +15,7 @@ Each LUT encodes a complete photographic reproduction chain:
 
 **Tri-X**: scene light → Kodak Wratten glass filter (spectral transmission × film sensitivity) → Tri-X 400 negative (H&D characteristic curve at 7 min development) → Kodak Polymax Fine-Art enlarging paper (at a specific contrast grade) → print reflectance → display. This is the full negative-to-print darkroom process.
 
-**Velvia**: scene light → Fuji Velvia 50 reversal film (3 independent dye layers, each with its own spectral sensitivity and H&D curve) → slide transmittance → display. This is the projected-slide experience. Contrast grades are parametric (see "Honest limitations" below).
+**Velvia**: scene light → Fuji Velvia 50 reversal film (3 independent dye layers, each with its own spectral sensitivity and H&D curve) → slide transmittance → display. This is the projected-slide experience for the six ExtraSoft–Hard looks (contrast grades are parametric — see "Honest limitations" below). The seventh look, **RadianceIII**, instead cascades the Velvia film curve through Kodak Ektachrome Radiance III — a real print paper for printing directly from E-6 slides — the same negative/reversal-plus-paper cascade structure Tri-X uses, just with a direct-positive (not negative-positive) paper stage.
 
 ## Quick start — darktable setup
 
@@ -61,7 +61,7 @@ Files are named `Velvia50_<Look>.cube` and live in `velvia_classic/` or `velvia_
 
 No filters — Velvia is a colour film; glass filters would alter its colour rendering, which is the whole point of choosing it.
 
-The same six look names (ExtraSoft through Hard) provide the contrast ladder. See "Honest limitations" for what drives them.
+Six look names (ExtraSoft through Hard) provide a parametric contrast ladder — see "Honest limitations" for what drives them. The seventh, **RadianceIII**, is not part of that ladder: it's Velvia's film curve printed through a real Kodak Ektachrome Radiance III print-paper curve instead of a synthetic gamma tweak, giving a real (if singular) alternative to the parametric looks.
 
 ### Classic vs Modern
 
@@ -115,7 +115,7 @@ Five additional perceptual phenomena were evaluated for inclusion in the "modern
 
 **Highlight clipping**: Adobe RGB encoding clips input at approximately middle-grey + 2.5 stops. This is a fundamental limitation of the .cube LUT format — no wide-range perceptual encoding (PQ, log) is available in darktable's lut3d module. The print shoulder (Tri-X) and reversal shoulder (Velvia) already roll off highlights, so for most pictorial photography the loss is small.
 
-**Velvia contrast grades are parametric**: the six Velvia looks use a power-curve contrast adjustment around middle grey rather than separate real paper/process data (no multi-grade reversal print data exists in digitized form). The spectral sensitivity and H&D characteristic curves are real; the contrast variation is synthetic. Tri-X contrast grades, by contrast, come from real Kodak Polymax paper grade data (grades 0–5).
+**Velvia's six ExtraSoft–Hard grades are parametric**: they use a power-curve contrast adjustment around middle grey rather than separate real paper/process data. The spectral sensitivity and H&D characteristic curves are real; the contrast variation between grades is synthetic. Tri-X contrast grades, by contrast, come from real Kodak Polymax paper grade data (grades 0–5). The seventh Velvia look, RadianceIII, is real print-paper data — but it's only one grade, not a ladder: the other real candidates found (Ilfochrome Micrographic M/P, Kodak Dye Transfer) turned out to be the wrong fit. Ilfochrome Micrographic is duplicating/microfilm stock, not a pictorial paper, and its own gamma compounds with Velvia's already-punchy native gamma into an unusably contrasty, clipping result. Dye Transfer's digitized curve is flagged by its own source library as "very experimental and unreliable," and its "for Slides" variant turned out to just be a renamed copy of the (also unfinished) Kodachrome curve, not independent data. No fabricated data was used to paper over this gap.
 
 **Grain and halation**: spatial effects that a per-pixel LUT cannot represent. Use darktable's grain module and/or the Diffuse or Sharpen module with red-channel blend mode for halation simulation.
 
@@ -137,6 +137,8 @@ A .cube LUT needs gamma-encoded input so the grid distributes its sample points 
 
 **Polymax Fine-Art**: characteristic curves at contrast grades 0 through 5 from the published Kodak datasheet.
 
+**Kodak Ektachrome Radiance III**: characteristic curves (3 layers, reversal) from the published Kodak datasheet — a real chromogenic print paper for printing directly from E-6 reversal slides, used for the Velvia RadianceIII look.
+
 **Wratten filters**: spectral transmission data from Kodak Publication B-3, "Handbook of Kodak Photographic Filters" (1990, ISBN 0-87985-658-0), transcribed by Paul Repacholi (1992), hosted at the University of Coimbra (mat.uc.pt). Cross-validated against the UEA Colour Group's wratten-db.
 
 All film curves and spectral sensitivities were digitized by the open-source project [spectral_film_lut](https://github.com/JanLohse/spectral_film_lut) (MIT license). CIE 1931 colour matching functions and the D65 illuminant are international standards.
@@ -144,10 +146,10 @@ All film curves and spectral sensitivities were digitized by the open-source pro
 ## Generating
 
 ```
-python generate_film_looks.py                  # 65^3, all 84 LUTs
+python generate_film_looks.py                  # 65^3, all 86 LUTs
 python generate_film_looks.py --size 33        # faster, smaller files
 python generate_film_looks.py --only trix      # Tri-X only (72 LUTs)
-python generate_film_looks.py --only velvia    # Velvia only (12 LUTs)
+python generate_film_looks.py --only velvia    # Velvia only (14 LUTs)
 ```
 
 No dependencies beyond Python 3 standard library.

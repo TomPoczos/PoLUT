@@ -6,10 +6,10 @@ Generates 4 folders of curated film-look LUTs that replace your tone mapper:
 
   trix_classic/     — 36 LUTs (6 looks × 6 filters), pure film physics
   trix_modern/      — 36 LUTs, adds Helmholtz-Kohlrausch perceptual correction
-  velvia_classic/   —  6 LUTs (6 looks, no filters), pure film physics
-  velvia_modern/    —  6 LUTs, adds HK correction for color
+  velvia_classic/   —  7 LUTs (6 parametric looks + RadianceIII, no filters), pure film physics
+  velvia_modern/    —  7 LUTs, adds HK correction for color
 
-Total: 84 LUTs. See README.md for setup and explanation.
+Total: 86 LUTs. See README.md for setup and explanation.
 
 Usage:
   python generate_film_looks.py                  # 65^3 default
@@ -130,6 +130,16 @@ VELVIA_CURVES = [
 {-2.8207:3.7111,-2.5688:3.6954,-2.3516:3.6737,-2.1041:3.5997,-1.9868:3.5327,-1.9086:3.4675,-1.8087:3.3457,-1.7193:3.1908,-1.6263:2.9802,-1.5594:2.8149,-1.4595:2.5452,-1.3553:2.2711,-1.2207:1.9492,-1.1025:1.6925,-0.9887:1.4663,-0.7594:1.0992,-0.6092:0.8799,-0.4172:0.6372,-0.2852:0.4884,-0.0741:0.3144,0.0128:0.2561,0.2021:0.196,0.4592:0.1551,0.8319:0.1612,1.1107:0.1673},
 ]
 
+# Kodak Ektachrome Radiance III — real print paper for direct printing from
+# E-6 reversal slide film, 3 layers matching VELVIA_CURVES layer order. Used
+# as an extra "RadianceIII" Velvia look, cascaded through Velvia's own curve
+# via build_velvia_print_cascade() below, alongside the parametric-gamma looks.
+EKTACHROME_RADIANCE_III = [
+{0.0:2.5171,0.1634:2.5206,0.3578:2.5171,0.5251:2.4785,0.6924:2.4181,0.8076:2.3545,0.9491:2.2256,1.1217:2.0444,1.2737:1.8659,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+{0.0057:2.4181,0.2567:2.4199,0.4668:2.4026,0.5912:2.3789,0.7624:2.3457,0.9335:2.2528,1.0891:2.1168,1.2058:2.0002,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+{0.0:2.451,0.2023:2.4549,0.3851:2.4564,0.5679:2.4238,0.7274:2.4026,0.8596:2.3538,0.9841:2.2606,1.1043:2.1359,1.2061:1.9966,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+]
+
 # =========================================================================
 # Wratten filter transmission (%), Kodak B-3
 # =========================================================================
@@ -175,7 +185,7 @@ def velvia_layer_weights():
 # =========================================================================
 # Cascade builders
 # =========================================================================
-def _find_anchor(xs, ys, td, increasing):
+def _find_anchor(xs, ys, td, increasing, start=0):
     """Find x where digitized curve xs->ys crosses target density td.
 
     xs/ys must be sorted by increasing exposure (xs ascending). `increasing`
@@ -184,18 +194,23 @@ def _find_anchor(xs, ys, td, increasing):
     for reversal dye layers (density falls with exposure). Clamps to the
     nearest endpoint if td is outside the digitized range.
 
-    Scans from index 0 — the well-behaved, non-solarized end of every curve
-    in this dataset — and returns the first bracketing crossing, which is the
-    physically correct one even though several of the digitized curves wobble
-    non-monotonically further out (Polymax grades 0/1 dip near Dmax; all three
-    Velvia dye layers reverse/solarize at the extreme-overexposure tail). To
-    keep that assumption honest, raise instead of silently misfiring if the
-    curve isn't monotonic in the region actually scanned before the crossing.
+    Scans from index `start` (0 by default) — the well-behaved, non-solarized
+    end of every curve in this dataset — and returns the first bracketing
+    crossing, which is the physically correct one even though several of the
+    digitized curves wobble non-monotonically further out (Polymax grades 0/1
+    dip near Dmax; all three Velvia dye layers reverse/solarize at the
+    extreme-overexposure tail). To keep that assumption honest, raise instead
+    of silently misfiring if the curve isn't monotonic in the region actually
+    scanned before the crossing. `start` lets a caller skip a leading sample
+    known to be noise rather than a real reversal (e.g. Ektachrome Radiance
+    III's first two points sit on an essentially flat Dmax plateau and wobble
+    by ~0.003-0.004 density — digitization noise, not solarization — nowhere
+    near where any of its grey-anchor crossings actually fall).
     """
     if increasing:
         if td<=ys[0]: return xs[0]
         if td>=ys[-1]: return xs[-1]
-        for i in range(len(xs)-1):
+        for i in range(start,len(xs)-1):
             if ys[i]>ys[i+1]:
                 raise ValueError(f"_find_anchor: curve not monotonic before crossing (index {i}: {ys[i]} > {ys[i+1]})")
             if ys[i]==ys[i+1]:
@@ -206,7 +221,7 @@ def _find_anchor(xs, ys, td, increasing):
     else:
         if td>=ys[0]: return xs[0]
         if td<=ys[-1]: return xs[-1]
-        for i in range(len(xs)-1):
+        for i in range(start,len(xs)-1):
             if ys[i]<ys[i+1]:
                 raise ValueError(f"_find_anchor: curve not monotonic before crossing (index {i}: {ys[i]} < {ys[i+1]})")
             if ys[i]==ys[i+1]:
@@ -241,6 +256,32 @@ def build_velvia_layer(curve, gamma_adj):
         if gamma_adj!=1.0 and T>1e-9:
             T=GREY*(T/GREY)**gamma_adj
         return max(0.0,min(1.0,T))
+    return xfer
+
+def build_velvia_print_cascade(film_curve, paper_curve):
+    """Velvia dye layer × a real reversal print paper (e.g. Ektachrome Radiance
+    III) → transfer function E→reflectance. Same two-stage structure as
+    build_trix_cascade(), but paper_curve is direct-positive (density falls
+    with print exposure, increasing=False) rather than negative-positive.
+
+    Ektachrome Radiance III's digitized curves each begin with 1-2 samples of
+    ~0.003-0.004 density upticks on their flat Dmax plateau (measurement noise
+    from tracing a nearly-flat line, not a real reversal) before the curve's
+    actual monotonic decline — and before _find_anchor ever reaches the real
+    grey-anchor crossing much further down the curve. Skip past that noise by
+    starting the anchor search at the true (noise-free) peak density among the
+    first few samples, rather than assuming index 0 is already well-behaved.
+    """
+    fxs,fys=_sc(film_curve); pxs,pys=_sc(paper_curve)
+    na=0.5*(fxs[0]+fxs[-1]); dn=_il(fxs,fys,na); pdm=min(pys)
+    td=pdm-math.log10(0.18)
+    lead=pys[:5]; start=lead.index(max(lead))
+    lhg=_find_anchor(pxs,pys,td,increasing=False,start=start)
+    pl=lhg+dn
+    def xfer(E):
+        lh=fxs[0]-10 if E<=1e-9 else na+math.log10(E/GREY)
+        dp=_il(pxs,pys,pl-_il(fxs,fys,lh))
+        return max(0.0,min(1.0,10**(-(dp-pdm))))
     return xfer
 
 # =========================================================================
@@ -323,7 +364,7 @@ def main():
         for variant,use_hk in [("velvia_classic",False),("velvia_modern",True)]:
             outdir=os.path.join(args.output,variant)
             os.makedirs(outdir,exist_ok=True)
-            print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {len(LOOKS)} LUTs")
+            print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {len(LOOKS)+1} LUTs")
             for look,_ in LOOKS:
                 gm=VELVIA_GAMMA[look]
                 xfers=[build_velvia_layer(VELVIA_CURVES[li],gm) for li in range(3)]
@@ -333,6 +374,13 @@ def main():
                                 f"Velvia 50 {look}",vlw,xfers,args.size,use_hk)
                 total+=1
                 print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
+            xfers=[build_velvia_print_cascade(VELVIA_CURVES[li],EKTACHROME_RADIANCE_III[li]) for li in range(3)]
+            fname="Velvia50_RadianceIII.cube"
+            t1=time.time()
+            write_color_lut(os.path.join(outdir,fname),
+                            "Velvia 50 RadianceIII",vlw,xfers,args.size,use_hk)
+            total+=1
+            print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
     print(f"\nDone. {total} LUTs in {time.time()-t0:.0f}s")
 
