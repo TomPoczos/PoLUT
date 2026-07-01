@@ -165,6 +165,19 @@ INTERNEGATIVE_II_CURVES = [
 {-1.2434:0.803,-0.8621:0.8195,-0.7191:0.8354,-0.5951:0.8655,-0.4998:0.9021,-0.4807:0.9031,-0.2805:0.9981,-0.1375:1.0806,0.0436:1.2003,0.0722:1.21,0.7968:1.6891,0.873:1.7229,1.0446:1.8234,1.0733:1.8311,1.3974:2.0223,1.4737:2.0535,1.6453:2.1538,1.6739:2.1616,1.9217:2.3074,1.998:2.3452,2.0171:2.3462,2.1982:2.4225,2.2173:2.4226,2.3222:2.4657,2.408:2.4838,2.5605:2.503},
 ]
 
+# Real published Kodak calibration target for the internegative, Status M
+# density, [red/cyan-forming, green/magenta-forming, blue/yellow-forming] --
+# matches INTERNEGATIVE_II_CURVES' own layer order. Not derived or guessed:
+# transcribed directly from EASTMAN Color Internegative II Film 5272/7272's
+# own datasheet (TI1301, section 9 "Laboratory Aim Density (LAD)"): "Status
+# M LAD values for EASTMAN Color Internegative II Film: Internegative LAD
+# Aim Red 0.90, Green 1.30, Blue 1.70 (+/-0.12 density)" -- the density the
+# internegative should read when a normally-exposed reversal original is
+# printed onto it at the center of the printer range. Used by
+# build_print_cascade() (via COLOR_FILMS) as this stage's calibration
+# reference point instead of an invented density-midpoint heuristic.
+INTERNEGATIVE_II_LAD_AIM = [0.90, 1.30, 1.70]
+
 # =========================================================================
 # Print paper data — real RA-4 negative/print papers, forming a shared
 # 5-rung contrast ladder (like POLY's grades 0-5 do for Tri-X) used by
@@ -200,13 +213,13 @@ CA_MAXIMA = [  # Fuji Crystal Archive Maxima
 {-0.0476:0.065987,0.0396:0.070342,0.1665:0.075678,0.3003:0.090813,0.4708:0.14166,0.5669:0.20547,0.6551:0.30282,0.7572:0.47595,0.8454:0.68578,0.9197:0.89126,0.999:1.1617,1.0585:1.4051,1.1318:1.6766,1.2071:1.9514,1.2587:2.1277,1.3518:2.3288,1.3984:2.4089,1.4579:2.4835,1.5282:2.5528,1.6274:2.6068,1.7393:2.6523,1.8484:2.6804,1.9574:2.6934,2.0347:2.6977},
 ]
 
-# name -> (paper curve list, _find_anchor start index). All 0 except Endura
-# Premier, whose raw curve has ~10 leading samples of digitization noise on
-# its Dmin plateau (density oscillating ~0.001-0.003, not a real reversal) --
-# same handling as Ektachrome Radiance III used to need. Verified the real
-# grey-anchor crossing (~0.836 density) lands well clear of it regardless of
-# which film this paper is paired with, since it depends only on the paper's
-# own curve. See tasks/07-real-paper-graded-color-film-ladder.md point 3.
+# name -> (paper curve list, _find_anchor start index, used as the final
+# stage's grey-anchor start). All 0 except Endura Premier, whose raw curve
+# has ~10 leading samples of digitization noise on its Dmin plateau (density
+# oscillating ~0.001-0.003, not a real reversal) -- same handling Ektachrome
+# Radiance III used to need. Verified the real grey-anchor crossing (~0.836
+# density) lands well clear of it regardless of which film this paper is
+# paired with, since it depends only on the paper's own curve.
 PAPER_LADDER = {
 "ExtraSoft":   (ENDURA_PREMIER,   10),
 "Soft":        (PORTRA_ENDURA,     0),
@@ -350,44 +363,68 @@ def _find_anchor(xs, ys, td, increasing, start=0):
                 t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
     raise ValueError("_find_anchor: target density not found in curve range")
 
-def build_print_cascade(stages, start=0):
+def build_print_cascade(stages):
     """N-stage print cascade: E -> reflectance.
 
-    `stages` is an ordered list of (curve_dict, increasing) pairs, first =
-    what receives scene light (a camera film, or Velvia's own reversal
-    curve), last = the final print material (a real paper). `increasing`
-    means density rises with exposure (any negative-type material: Tri-X's
-    TRIX_DEV7, the internegative, every paper in PAPER_LADDER); False means
-    density falls with exposure (a reversal dye layer, e.g. Velvia).
+    `stages` is an ordered list of (curve_dict, increasing, start, ref_d)
+    tuples, first = what receives scene light (a camera film, or a reversal
+    film's own curve), last = the final print material (a real paper).
+    `increasing` means density rises with exposure (any negative-type
+    material: Tri-X's TRIX_DEV7, the internegative, every paper in
+    PAPER_LADDER); False means density falls with exposure (a reversal dye
+    layer, e.g. Velvia). `start` is passed to whichever _find_anchor()
+    search that stage needs, for curves with leading digitization noise
+    before the real crossing (e.g. Kodak Endura Premier as a final stage,
+    or Fuji Provia 100F's own reversal curve as a non-final one -- both
+    have a tiny Dmax-plateau wobble in their first sample or two; 0 for
+    every other curve in this file, which are clean). `ref_d` is the target
+    density _find_anchor() searches for to find that stage's own
+    calibration reference point -- ignored for the final stage, which is
+    always grey-anchored to 18% reflectance regardless of what's passed.
 
     Every stage except the last is a pure forward evaluation via _il() --
     its density becomes the next stage's printing exposure, calibrated
     against a fixed "printer light" constant derived from each stage's own
-    local exposure-range midpoint. That's how light physically passes
-    through an intermediate duplicating stage (an internegative) or a
-    negative film feeding a paper: no search needed, exposure flows forward
-    stage to stage. Only the LAST stage is grey-anchored via _find_anchor(),
-    since that's the one physical material whose own density has to
-    reproduce exactly 18% reflectance when the whole chain is fed GREY scene
-    exposure -- exactly the two-stage structure the old build_trix_cascade()/
-    build_velvia_print_cascade() each hardcoded once; this generalizes it to
-    any chain length so a 3-stage film->internegative->paper cascade and a
-    2-stage film->paper cascade share one implementation.
+    reference exposure (where _find_anchor() finds density=ref_d) and the
+    density the *previous* stage produces there. That's how light physically
+    passes through an intermediate duplicating stage (an internegative) or a
+    negative film feeding a paper: no search needed for the exposure flow
+    itself, only for where to calibrate it -- exactly the two-stage
+    structure the old build_trix_cascade()/build_velvia_print_cascade() each
+    hardcoded once; this generalizes it to any chain length so a 3-stage
+    film->internegative->paper cascade and a 2-stage film->paper cascade
+    share one implementation. Only the LAST stage is grey-anchored to 18%
+    reflectance instead of an arbitrary ref_d, since that's the one physical
+    material whose own density has to reproduce exactly 18% reflectance when
+    the whole chain is fed GREY scene exposure.
 
-    `start` is passed to the final stage's _find_anchor() call, for papers
-    with leading digitization noise before their real grey crossing (see
-    PAPER_LADDER's Kodak Endura Premier entry).
+    `ref_d` deliberately isn't computed in here -- an earlier version tried
+    a built-in "density-range midpoint" heuristic for every non-final stage,
+    which is arbitrary (not tied to any real photographic reference) and
+    left a real, measurable stop-plus of highlight headroom unused (verified
+    against the shipped Velvia50_Classic_Normal.cube: neutral white topped
+    out at encoded 0.827 instead of the ~0.93-0.94 Tri-X reliably reaches).
+    Callers now supply ref_d explicitly, so each one can be traced to either
+    real published calibration data (see COLOR_FILMS: the internegative's
+    ref_d is Kodak's own published "Internegative LAD Aim" density from the
+    EASTMAN Color Internegative II Film 5272/7272 datasheet TI1301 sec.9,
+    not a guess; a reversal film's own ref_d is the exposure that reproduces
+    18% reflectance on *its own* curve, the same universal photographic
+    grey convention every other anchor in this file uses) or, where no
+    better published reference exists (Tri-X's TRIX_DEV7 -- see
+    build_trix_cascade()), a density-range-midpoint fallback that's at least
+    labeled as such rather than presented as if it were real data.
     """
-    parsed = [(_sc(curve), inc) for curve, inc in stages]
-    refs = []  # (own exposure-range midpoint, density there) per stage
-    for (xs, ys), _ in parsed:
-        na = 0.5*(xs[0]+xs[-1])
+    parsed = [(_sc(curve), inc, st, rd) for curve, inc, st, rd in stages]
+    refs = []  # (own reference exposure, density there), non-final stages only
+    for (xs, ys), inc, st, ref_d in parsed[:-1]:  # last stage is grey-anchored separately below
+        na = _find_anchor(xs, ys, ref_d, increasing=inc, start=st)
         refs.append((na, _il(xs, ys, na)))
 
-    (fxs, fys), finc = parsed[-1]
+    (fxs, fys), finc, fst, _ = parsed[-1]
     fdm = min(fys)
     td = fdm - math.log10(0.18)
-    lhg = _find_anchor(fxs, fys, td, increasing=finc, start=start)
+    lhg = _find_anchor(fxs, fys, td, increasing=finc, start=fst)
 
     pls = []
     for i in range(len(parsed) - 1):
@@ -398,21 +435,116 @@ def build_print_cascade(stages, start=0):
             na_next = refs[i+1][0]
             pls.append(na_next + dn_i)
 
-    (x0, y0), _ = parsed[0]
+    (x0, y0), _, _, _ = parsed[0]
     na0 = refs[0][0]
 
     def xfer(E):
         lh = x0[0]-10 if E<=1e-9 else na0+math.log10(E/GREY)
         D = _il(x0, y0, lh)
         for i in range(1, len(parsed)):
-            (xs_i, ys_i), _ = parsed[i]
+            (xs_i, ys_i), _, _, _ = parsed[i]
             D = _il(xs_i, ys_i, pls[i-1]-D)
         return max(0.0, min(1.0, 10**(-(D-fdm))))
     return xfer
 
+def reversal_grey_target(curve):
+    """Target density where a reversal-type curve reproduces 18% reflectance
+    -- the same universal photographic grey convention the final stage of
+    every cascade is anchored to. Lands in the same ballpark (~0.83-1.00
+    density across all four reversal films checked) as Kodak's own published
+    reference for a normally-exposed reversal original (Status M 1.10, from
+    the "reversal LAD control film" spec in EASTMAN Color Internegative II
+    Film 5272/7272's datasheet, TI1301 sec.9) -- a different reference
+    material, so not an exact match, but the right order of magnitude for
+    the same real-world concept: where does *grey* belong.
+
+    NOT used as a non-final stage's calibration reference point (despite an
+    earlier version of this function doing exactly that) -- checked directly
+    and it's the wrong tool for that job. "Where does grey belong" and "how
+    do I avoid wasting this stage's dynamic range in the calibration
+    handoff" are different questions: on Velvia's own curve this target
+    sits at only ~20-23% of the layer's full density range (density_
+    midpoint() sits at 50% by construction), which starves the highlight
+    end of the very headroom this calibration is trying to preserve. Kept
+    around only for its original purpose: sanity-checking that our own
+    grey math lands in the right ballpark against Kodak's published number
+    (see the comment above), not for feeding into build_print_cascade().
+    """
+    _, ys = _sc(curve)
+    return min(ys) - math.log10(0.18)
+
+def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
+    """The density span [lo, hi] covered by the straight-line (constant-
+    gamma) portion of a digitized H&D curve, excluding the toe (near Dmin)
+    and shoulder (near Dmax) where real film/paper response compresses.
+    Finds it by resampling onto a uniform exposure grid (`_il()`), taking
+    local slope between adjacent grid points, and keeping the widest
+    contiguous run where |slope| is within `frac` of the curve's peak
+    slope. Resampling onto a uniform grid first matters: raw point-to-point
+    slopes on the original digitized points spike on short intervals from
+    ordinary digitization noise (this codebase's curves are adaptively,
+    unevenly spaced -- see curve_digitizer's RDP simplification), even
+    where the underlying curve is smooth; a uniform grid dilutes that noise
+    instead of amplifying it.
+    """
+    x_lo, x_hi = xs[0], xs[-1]
+    grid = [x_lo + (x_hi-x_lo)*i/(n_samples-1) for i in range(n_samples)]
+    grid_y = [_il(xs, ys, x) for x in grid]
+    slopes = [(grid_y[i+1]-grid_y[i])/(grid[i+1]-grid[i]) for i in range(n_samples-1)]
+    peak = max(abs(s) for s in slopes)
+    thresh = peak * frac
+    n = len(slopes)
+    best = (0, 0)
+    i = 0
+    while i < n:
+        if abs(slopes[i]) >= thresh:
+            j = i
+            while j < n and abs(slopes[j]) >= thresh:
+                j += 1
+            if j - i > best[1] - best[0]:
+                best = (i, j)
+            i = j
+        else:
+            i += 1
+    seg_ys = grid_y[best[0]:best[1]+1]
+    return min(seg_ys), max(seg_ys)
+
+def density_midpoint(curve):
+    """Exposure at the midpoint of the density range spanned by a curve's
+    own straight-line portion -- real measured data (the material's own
+    actual response), used as a stage's calibration reference point
+    specifically where no better *published calibration* number exists for
+    that exact question (see build_print_cascade's docstring: this is a
+    labeled fallback, not presented as if it were a manufacturer's own aim
+    density). Matches Kodak's own stated general LAD methodology for
+    duplicating films where no per-film aim density is published: "the
+    specified aims are at the center of the usable straight-line portion of
+    the sensitometric curve of the film" (EASTMAN EKTACHROME Film 5240/7240
+    datasheet TI0986, sec.11) -- i.e. this isn't an arbitrary substitute for
+    missing data, it's an approximation of Kodak's own documented practice
+    for exactly this situation. Deliberately still used for every reversal
+    film's own stage in COLOR_FILMS: reversal_grey_target() was tried there
+    instead and made headroom measurably worse (see that function's
+    docstring) because "where grey belongs" and "how to not waste dynamic
+    range in a calibration handoff" are different questions, and only this
+    one answers the second.
+    """
+    xs, ys = _sc(curve)
+    lo, hi = _straight_line_density_range(xs, ys)
+    return (lo + hi) / 2
+
 def build_trix_cascade(paper):
-    """Tri-X dev7 negative × Polymax paper → transfer function E→reflectance."""
-    return build_print_cascade([(TRIX_DEV7, True), (paper, True)])
+    """Tri-X dev7 negative × Polymax paper → transfer function E→reflectance.
+
+    TRIX_DEV7's own reference point (its density-range midpoint) has no
+    equivalent published LAD-style target the way the internegative does --
+    this is a labeled fallback, not real calibration data, kept only because
+    it's already been checked to perform well (Tri-X's own highlight/shadow
+    headroom lands within rounding of the theoretical best case for every
+    Polymax grade -- see tasks/DONE-07-... for the numbers). Don't copy this
+    pattern for a new material without checking it the same way first.
+    """
+    return build_print_cascade([(TRIX_DEV7, True, 0, density_midpoint(TRIX_DEV7)), (paper, True, 0, None)])
 
 # =========================================================================
 # LUT writers
@@ -461,23 +593,55 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 # Main
 # =========================================================================
 # key, file prefix, display name, spectral sensitivity, cascade-stage builder
-# (given a layer index and the chosen paper's full 3-layer curve list,
-# returns the ordered [(curve, increasing), ...] list build_print_cascade()
+# (given a layer index, the chosen paper's full 3-layer curve list, and that
+# paper's _find_anchor start index, returns the ordered
+# [(curve, increasing, start, ref_d), ...] list build_print_cascade()
 # expects). All four are reversal (slide) films -- none can go straight onto
 # negative print paper, so all four route through INTERNEGATIVE_II_CURVES via
 # the same 3-stage film->internegative->paper cascade (see README "What these
 # replicate"). A camera negative (e.g. Portra) would use a 2-stage cascade
 # instead, the same shape as build_trix_cascade() -- deliberately not part of
 # this lineup, see tasks/DONE-07-... for why negative films were removed.
+#
+# Reference densities (ref_d):
+#   - the internegative stage uses INTERNEGATIVE_II_LAD_AIM[li] -- Kodak's
+#     own published calibration target for this exact film, from its real
+#     datasheet (see that constant's own comment for the citation).
+#   - each film's own stage uses density_midpoint() on its own curve --
+#     reversal_grey_target() (18% reflectance) was tried here first since
+#     it's the more "real" number, but it answers a different question than
+#     this calibration point needs answered and measurably hurt highlight
+#     headroom (see reversal_grey_target()'s own docstring for why). No
+#     published aim density exists for "how much of a reversal film's own
+#     range should map onto the internegative," the way one does for the
+#     internegative's own target -- density_midpoint() is the documented
+#     fallback for that, not presented as manufacturer data.
+#
+# Provia 100F's own curve gets start=1 (not 0): its raw data has the same
+# kind of tiny leading Dmax-plateau digitization noise Endura Premier has,
+# and it's now a non-final stage whose own reference point gets searched too
+# (see build_print_cascade docstring) -- checked directly, not assumed.
 COLOR_FILMS = [
     ("velvia", "Velvia50", "Velvia 50", VELVIA_SENS,
-     lambda li, paper: [(VELVIA_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+     lambda li, paper, pstart: [
+         (VELVIA_CURVES[li], False, 0, density_midpoint(VELVIA_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, pstart, None)]),
     ("kodachrome64", "Kodachrome64", "Kodachrome 64", KODACHROME64_SENS,
-     lambda li, paper: [(KODACHROME64_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+     lambda li, paper, pstart: [
+         (KODACHROME64_CURVES[li], False, 0, density_midpoint(KODACHROME64_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, pstart, None)]),
     ("provia100f", "Provia100F", "Fuji Provia 100F", PROVIA100F_SENS,
-     lambda li, paper: [(PROVIA100F_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+     lambda li, paper, pstart: [
+         (PROVIA100F_CURVES[li], False, 1, density_midpoint(PROVIA100F_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, pstart, None)]),
     ("ektachrome100d", "Ektachrome100D", "Kodak Ektachrome 100D", EKTACHROME100D_SENS,
-     lambda li, paper: [(EKTACHROME100D_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+     lambda li, paper, pstart: [
+         (EKTACHROME100D_CURVES[li], False, 0, density_midpoint(EKTACHROME100D_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, pstart, None)]),
 ]
 COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 
@@ -521,7 +685,7 @@ def main():
         for variant_label,use_hk in [("Classic",False),("Modern",True)]:
             for look in COLOR_LOOKS:
                 paper,start=PAPER_LADDER[look]
-                xfers=[build_print_cascade(stage_fn(li,paper),start=start) for li in range(3)]
+                xfers=[build_print_cascade(stage_fn(li,paper,start)) for li in range(3)]
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
                 write_color_lut(os.path.join(outdir,fname),
