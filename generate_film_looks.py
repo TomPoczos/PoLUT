@@ -48,8 +48,19 @@ _d3 = (6/29)**3
 def _lf(t): return t**(1/3) if t>_d3 else t/(3*(6/29)**2)+4/29
 def _lfi(t): return t**3 if t>6/29 else 3*(6/29)**2*(t-4/29)
 
+# Ceiling on hk_mul()'s output. The Fairchild & Pirrotta (1991) L** model has no
+# built-in bound and was fit/tested only against real Munsell surface chips (their
+# Table I): L* in [~30,~87], C* in [~6,~87]. The largest luminance-matching ratio
+# implied by any of their own measured (not just modelled) data points is ~2.7x
+# (sample 5PB3/10: L*=30.42, C*=44.05 -> observed lightness 48.6). Wide-gamut scene
+# colours (this tool decodes Adobe RGB) routinely exceed that C* range and produce
+# unbounded multipliers when fed through the formula's linear C* term. 3.0x gives
+# headroom above the largest paper-supported ratio while cutting off extrapolation
+# far beyond it. See README "Helmholtz-Kohlrausch correction" for the full derivation.
+HK_MAX_MUL = 3.0
+
 def hk_mul(R,G,B):
-    """HK exposure multiplier from linear Adobe RGB input."""
+    """HK exposure multiplier from linear Adobe RGB input, capped at HK_MAX_MUL."""
     if R<1e-6 and G<1e-6 and B<1e-6: return 1.0
     X=_MA_INV[0][0]*R+_MA_INV[0][1]*G+_MA_INV[0][2]*B
     Y=_MA_INV[1][0]*R+_MA_INV[1][1]*G+_MA_INV[1][2]*B
@@ -61,7 +72,8 @@ def hk_mul(R,G,B):
     if L<=0.01 or C<0.5: return 1.0
     dL=(2.5-0.025*L)*(0.116*abs(math.sin(math.radians((h-90)/2)))+0.085)*C
     Yc=_Yn*_lfi((L+dL+16)/116); Yo=_Yn*_lfi((L+16)/116)
-    return Yc/Yo if Yo>1e-10 else 1.0
+    if Yo<=1e-10: return 1.0
+    return min(Yc/Yo, HK_MAX_MUL)
 
 # =========================================================================
 # Interpolation

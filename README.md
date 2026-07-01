@@ -91,6 +91,12 @@ L** = L* + (2.5 − 0.025·L*) · (0.116·|sin((h−90°)/2)| + 0.085) · C*
 
 The correction is strongest for blue (h ≈ 270°) and red (h ≈ 0°/360°), weakest for yellow-green. It's converted to a linear exposure multiplier via the L*→Y inverse, then applied to the film exposure.
 
+**The exposure multiplier is capped at `HK_MAX_MUL = 3.0×` (an explicit invariant, alongside `GREY = 0.18`).** The formula above has no built-in ceiling — `dL` grows linearly with `C*` forever, and its `(2.5 − 0.025·L*)` term is largest at low lightness, so dark, saturated pixels get the biggest (and least-validated) boost. Fairchild & Pirrotta fit and tested the model only against real Munsell surface chips (their published Table I): `L*` in roughly [30, 87], `C*` in roughly [6, 87]. Adobe RGB scene-linear data (used here deliberately for its wide gamut) routinely produces chroma well outside that range — e.g. saturated blue reaches `C* ≈ 136`, almost 60% past anything the model was ever checked against — and the formula happily extrapolates into multipliers of 6–7× rather than tapering off.
+
+To pick a defensible ceiling rather than an arbitrary one: the largest luminance-matching ratio implied by any *measured* (not merely modelled) data point in Fairchild & Pirrotta's own Table I is about **2.7×** (sample 5PB3/10 — a dark, saturated purple-blue chip at `L* = 30.42`, `C* = 44.05` — matched to an achromatic lightness of 48.6, versus its own `L*` of 30.42). `HK_MAX_MUL = 3.0` sits just above that best-supported real data point, leaving ordinary saturated shadows and midtones (which land well under the cap — a cool-shadow color cast typically multiplies exposure by 1.6–1.9×) untouched, while cutting off the unbounded extrapolation that only wide-gamut synthetic colors ever reach.
+
+Note this bounds `hk_mul()`'s own output, not necessarily the final pixel-value ratio between classic and modern LUTs — the negative/paper (Tri-X) or reversal (Velvia) transfer function's own local contrast can still amplify or damp a bounded exposure change, same as it does for any other exposure difference. That's expected film-curve behavior, not a regression of this bound.
+
 ### Perceptual effects not implemented (and why)
 
 Five additional perceptual phenomena were evaluated for inclusion in the "modern" variants:
