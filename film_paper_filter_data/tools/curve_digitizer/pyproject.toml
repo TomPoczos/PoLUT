@@ -1,0 +1,10 @@
+[project]
+name = "curve-digitizer"
+version = "0.1.0"
+description = "Digitizes vector-drawn H&D / spectral-sensitivity curves out of Kodak/Eastman PDF datasheets"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.0",
+    "numpy>=2.5.0",
+    "pymupdf>=1.28.0",
+]

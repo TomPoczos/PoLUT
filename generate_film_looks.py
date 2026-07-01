@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 """
-generate_film_looks.py — Kodak Tri-X 400 + Fuji Velvia 50 film emulation LUTs
+generate_film_looks.py — Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia
+100F and Kodak Ektachrome 100D film emulation LUTs
 
-Generates 4 folders of curated film-look LUTs that replace your tone mapper:
+Generates 6 folders of curated film-look LUTs that replace your tone mapper:
 
-  trix_classic/     — 36 LUTs (6 looks × 6 filters), pure film physics
+  trix_classic/     — 36 LUTs (6 looks x 6 filters), pure film physics
   trix_modern/      — 36 LUTs, adds Helmholtz-Kohlrausch perceptual correction
-  velvia_classic/   —  7 LUTs (6 parametric looks + RadianceIII, no filters), pure film physics
-  velvia_modern/    —  7 LUTs, adds HK correction for color
+  velvia/           — 10 LUTs (5 real-paper looks x classic/modern)
+  kodachrome64/     — 10 LUTs, same real-paper-cascade structure
+  provia100f/       — 10 LUTs, same real-paper-cascade structure
+  ektachrome100d/   — 10 LUTs, same real-paper-cascade structure
 
-Total: 86 LUTs. See README.md for setup and explanation.
+Total: 112 LUTs.
+
+All four color films are reversal (slide) stocks. Each is printed through a
+real duplicating internegative (EASTMAN Color Internegative II Film
+5272/7272) and then a real RA-4 print paper -- the same cascade structure
+real darkroom labs used to get a printable result from a slide. Every look
+(ExtraSoft/Soft/Normal/Punchy/ExtraPunchy) is produced purely by choice of
+that print paper -- see PAPER_LADDER below -- not a synthetic contrast
+multiplier. See README.md for the full process writeup.
 
 Usage:
-  python generate_film_looks.py                  # 65^3 default
-  python generate_film_looks.py --size 33        # faster, smaller
-  python generate_film_looks.py --only trix      # just Tri-X
-  python generate_film_looks.py --only velvia    # just Velvia
+  python generate_film_looks.py                            # 65^3 default, everything
+  python generate_film_looks.py --size 33                  # faster, smaller
+  python generate_film_looks.py --only trix                 # just Tri-X
+  python generate_film_looks.py --only velvia kodachrome64   # just these two
   python generate_film_looks.py --help
 """
 
@@ -130,14 +141,122 @@ VELVIA_CURVES = [
 {-2.8207:3.7111,-2.5688:3.6954,-2.3516:3.6737,-2.1041:3.5997,-1.9868:3.5327,-1.9086:3.4675,-1.8087:3.3457,-1.7193:3.1908,-1.6263:2.9802,-1.5594:2.8149,-1.4595:2.5452,-1.3553:2.2711,-1.2207:1.9492,-1.1025:1.6925,-0.9887:1.4663,-0.7594:1.0992,-0.6092:0.8799,-0.4172:0.6372,-0.2852:0.4884,-0.0741:0.3144,0.0128:0.2561,0.2021:0.196,0.4592:0.1551,0.8319:0.1612,1.1107:0.1673},
 ]
 
-# Kodak Ektachrome Radiance III — real print paper for direct printing from
-# E-6 reversal slide film, 3 layers matching VELVIA_CURVES layer order. Used
-# as an extra "RadianceIII" Velvia look, cascaded through Velvia's own curve
-# via build_velvia_print_cascade() below, alongside the parametric-gamma looks.
-EKTACHROME_RADIANCE_III = [
-{0.0:2.5171,0.1634:2.5206,0.3578:2.5171,0.5251:2.4785,0.6924:2.4181,0.8076:2.3545,0.9491:2.2256,1.1217:2.0444,1.2737:1.8659,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
-{0.0057:2.4181,0.2567:2.4199,0.4668:2.4026,0.5912:2.3789,0.7624:2.3457,0.9335:2.2528,1.0891:2.1168,1.2058:2.0002,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
-{0.0:2.451,0.2023:2.4549,0.3851:2.4564,0.5679:2.4238,0.7274:2.4026,0.8596:2.3538,0.9841:2.2606,1.1043:2.1359,1.2061:1.9966,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+# =========================================================================
+# Film data — EASTMAN Color Internegative II Film 5272/7272 (duplicating
+# negative made from a reversal/slide original; the middle stage of Velvia's
+# print cascade below). Digitized via film_paper_filter_data/tools/
+# curve_digitizer/ from the real Kodak/Eastman datasheet TI1301 (papers/
+# kodak_internegative_ii_5272_TI1301.pdf) — vector-precise extraction, real
+# monotonicity enforced at the source (see that tool's README). Layer order
+# reordered from the digitizer's own blue/green/red output to match
+# VELVIA_SENS/VELVIA_CURVES's established [red-sensitive/cyan-forming,
+# green-sensitive/magenta-forming, blue-sensitive/yellow-forming] convention.
+# Measured gamma ~0.527 — genuinely low-contrast, like an ordinary camera
+# negative, engineered to leave headroom for the print paper's own contrast.
+# =========================================================================
+INTERNEGATIVE_II_SENS = [
+{532.4:-2.998,544.3:-2.83,553:-2.669,558.6:-2.49,576.5:-2.086,598.4:-1.488,602.3:-1.41,622.6:-1.135,633.3:-0.9236,634.9:-0.9144,635.3:-0.8871,636.9:-0.8771,637.3:-0.8503,645.3:-0.7265,653.6:-0.5256,655.6:-0.5047,657.6:-0.5031,660.4:-0.5484,667.1:-0.8851,681.4:-1.962,691:-2.583},
+{489.5:-2.49,494.5:-2.156,505.8:-1.787,520.1:-1.651,520.6:-1.615,522.9:-1.577,527.9:-1.527,534.7:-1.374,535.2:-1.339,536.1:-1.337,542.8:-1.136,546.2:-1.075,546.7:-1.034,552.1:-0.9508,555.7:-0.9521,566.7:-1.058,576.8:-1.327,579.3:-1.463,586.6:-2.183,590.5:-2.463,601.5:-2.963},
+{399.4:0.21,408.3:0.2146,426.5:0.0328,432.6:-0.0566,439.4:-0.2026,440.3:-0.1975,444.3:-0.2955,445.2:-0.2918,457.9:-0.5851,466.8:-0.8601,467.7:-0.8599,480:-1.302,480.3:-1.284,481.6:-1.322,494.8:-1.855,498.5:-1.964,499.1:-2.03,500:-2.033,500.6:-2.089,501.6:-2.095,510.5:-2.453,511.4:-2.527,513.9:-2.59,520.3:-2.895,521.3:-2.985,522.2:-2.994},
+]
+INTERNEGATIVE_II_CURVES = [
+{-1.2434:0.0626,-1.0432:0.0654,-0.824:0.0945,-0.5666:0.1606,-0.4522:0.2031,-0.4236:0.2066,-0.3473:0.2423,-0.3187:0.2472,-0.2139:0.2925,0.0245:0.4159,0.1865:0.4835,0.1961:0.495,0.32:0.5506,0.3295:0.5617,0.4916:0.6314,0.5297:0.6548,0.7013:0.7105,1.0159:0.8366,1.1208:0.8975,1.178:0.9193,1.1875:0.931,1.2161:0.937,1.2542:0.9635,1.3782:1.0206,1.5402:1.1265,1.5974:1.1518,1.607:1.1669,1.8929:1.3314,2.5603:1.6636},
+{-1.2434:0.4822,-1.026:0.4841,-0.8464:0.5016,-0.6289:0.5435,-0.4399:0.6115,-0.2697:0.7099,-0.0996:0.7896,0.0233:0.8571,0.1273:0.9277,0.3542:1.0541,0.4109:1.0773,0.496:1.1252,0.5811:1.1589,0.6189:1.1824,0.7134:1.2189,1.1955:1.4595,1.3563:1.5643,1.5453:1.6667,1.5642:1.6709,1.7817:1.8069,1.8762:1.8539,1.9235:1.87,1.9707:1.9006,2.0558:1.9391,2.5285:2.1297},
+{-1.2434:0.803,-0.8621:0.8195,-0.7191:0.8354,-0.5951:0.8655,-0.4998:0.9021,-0.4807:0.9031,-0.2805:0.9981,-0.1375:1.0806,0.0436:1.2003,0.0722:1.21,0.7968:1.6891,0.873:1.7229,1.0446:1.8234,1.0733:1.8311,1.3974:2.0223,1.4737:2.0535,1.6453:2.1538,1.6739:2.1616,1.9217:2.3074,1.998:2.3452,2.0171:2.3462,2.1982:2.4225,2.2173:2.4226,2.3222:2.4657,2.408:2.4838,2.5605:2.503},
+]
+
+# =========================================================================
+# Print paper data — real RA-4 negative/print papers, forming a shared
+# 5-rung contrast ladder (like POLY's grades 0-5 do for Tri-X) used by
+# every color film below. Excludes cinema release-print stocks (Kodak
+# 2383/2393/5381-series, Technicolor V) and duratrans/backlit display
+# materials (Fujiflex, Duraflex Plus) as the wrong medium regardless of
+# gamma fit. See README "Choosing a print paper" for the full selection
+# writeup and the compounded-gamma table behind PAPER_LADDER's ordering.
+# =========================================================================
+ENDURA_PREMIER = [  # Kodak Endura Premier Paper
+{-2.9446:0.0931,-2.8606:0.092,-2.7766:0.0937,-2.6926:0.0937,-2.6086:0.0912,-2.5246:0.0909,-2.4406:0.0909,-2.3566:0.0935,-2.2726:0.0937,-2.1886:0.0937,-2.1046:0.093,-2.0206:0.0964,-1.9366:0.1013,-1.8525:0.1124,-1.7685:0.1406,-1.6845:0.191,-1.6105:0.2705,-1.5545:0.3547,-1.5105:0.4404,-1.4638:0.5335,-1.4309:0.62,-1.4042:0.7044,-1.3765:0.7926,-1.3488:0.8864,-1.3263:0.9776,-1.3025:1.0709,-1.2805:1.1646,-1.2587:1.2564,-1.2385:1.3468,-1.2185:1.4344,-1.1983:1.5225,-1.1745:1.6142,-1.1521:1.707,-1.1313:1.7947,-1.1125:1.8862,-1.0905:1.9626,-1.0316:2.1987,-1.0025:2.2889,-0.9685:2.379,-0.9305:2.4631,-0.8845:2.5479,-0.8165:2.6303,-0.7325:2.6905,-0.6485:2.7172,-0.5645:2.7341,-0.4805:2.7502,-0.3965:2.7569,-0.3124:2.7554,-0.2284:2.7482,-0.1624:2.7397},
+{-2.9446:0.0939,-2.8606:0.092,-2.7766:0.0937,-2.6926:0.0937,-2.6086:0.0912,-2.5246:0.0909,-2.4406:0.0909,-2.3566:0.0935,-2.2726:0.0937,-2.1886:0.0937,-2.1046:0.093,-2.0206:0.0959,-1.9366:0.1013,-1.8525:0.1124,-1.7685:0.1406,-1.6845:0.191,-1.6105:0.2705,-1.5545:0.3547,-1.5105:0.4404,-1.4638:0.5335,-1.4309:0.62,-1.4042:0.7044,-1.3765:0.7926,-1.3488:0.8864,-1.3263:0.9759,-1.3027:1.0665,-1.2825:1.1552,-1.2625:1.2421,-1.2425:1.33,-1.2225:1.4172,-1.2025:1.5035,-1.1823:1.5863,-1.1601:1.6748,-1.1365:1.7683,-1.1185:1.8631,-1.0945:1.96,-1.0725:2.0221,-0.9845:2.2341,-0.9253:2.3129,-0.8525:2.4016,-0.7685:2.4558,-0.6845:2.4845,-0.6005:2.4977,-0.5165:2.5111,-0.4325:2.5211,-0.3484:2.5248,-0.2644:2.5241,-0.1804:2.5186},
+{-2.9486:0.0937,-2.8646:0.092,-2.7806:0.0937,-2.6966:0.0937,-2.6126:0.0913,-2.5286:0.0909,-2.4446:0.0909,-2.3606:0.0933,-2.2766:0.0937,-2.1926:0.0937,-2.1086:0.0931,-2.0246:0.096,-1.9406:0.1009,-1.8565:0.1116,-1.7725:0.1387,-1.6885:0.1877,-1.6145:0.2652,-1.5585:0.3478,-1.5145:0.432,-1.4701:0.5193,-1.4385:0.5998,-1.4085:0.689,-1.3805:0.7793,-1.3545:0.8682,-1.3305:0.9577,-1.3065:1.0547,-1.2827:1.1511,-1.2625:1.2421,-1.2425:1.33,-1.2225:1.4172,-1.2025:1.5019,-1.1823:1.5863,-1.1601:1.6746,-1.1365:1.7683,-1.1185:1.8631,-1.0945:1.96,-1.0645:2.0603,-0.9805:2.2409,-0.9325:2.2973,-0.8245:2.3832,-0.7405:2.4127,-0.6565:2.4237,-0.5725:2.4294,-0.4885:2.4366,-0.4045:2.4418,-0.3204:2.4429,-0.2364:2.4417,-0.1664:2.4383},
+]
+PORTRA_ENDURA = [  # Kodak Portra Endura Paper
+{-3:0.0888,-2.3878:0.0952,-2.2468:0.1081,-2.1715:0.1243,-2.0929:0.1469,-2.016:0.1791,-1.9455:0.2259,-1.8734:0.2953,-1.7981:0.3873,-1.7308:0.4922,-1.6346:0.7101,-1.5385:0.9699,-1.4423:1.2604,-1.3333:1.6154,-1.2548:1.8687,-1.2212:1.9672,-1.1731:2.0931,-1.117:2.2028,-1.0673:2.2835,-1.0128:2.3609,-0.9391:2.4287,-0.8365:2.4965,-0.7372:2.5352,-0.609:2.5724,-0.484:2.6046,-0.3718:2.624,-0.3045:2.6321,-0.1603:2.6563},
+{-2.9904:0.092,-2.2949:0.1033,-2.0481:0.1662,-1.891:0.2808,-1.7676:0.4325,-1.6907:0.5713,-1.5801:0.8327,-1.4599:1.1813,-1.3702:1.4798,-1.2853:1.7283,-1.2019:1.9527,-1.1026:2.1544,-1.0288:2.2609,-0.9006:2.3916,-0.7853:2.4691,-0.6635:2.5239,-0.5449:2.5756,-0.4519:2.6095,-0.3269:2.6272,-0.1587:2.6595},
+{-2.9936:0.0904,-2.3942:0.0968,-2.2051:0.1162,-2.0769:0.1549,-1.9135:0.2517,-1.8189:0.3421,-1.7372:0.4615,-1.6074:0.7327,-1.5353:0.9279,-1.4343:1.2426,-1.3702:1.4588,-1.2532:1.8203,-1.2163:1.9188,-1.1635:2.0446,-1.1042:2.156,-1.0385:2.2464,-0.9647:2.3045,-0.9167:2.3303,-0.8622:2.3513,-0.7644:2.3739,-0.6058:2.3932,-0.4423:2.4077,-0.3077:2.4142,-0.1635:2.4223},
+]
+CA_SUPER_TYPE_C = [  # Fuji Crystal Archive Super Type C
+{-0.2482:0.0895,-0.0158:0.1,0.1548:0.1281,0.3465:0.1857,0.4813:0.2488,0.6:0.3254,0.7685:0.4868,0.9342:0.7493,1.036:1.0013,1.1112:1.2884,1.1828:1.6274,1.234:1.871,1.3113:2.1427,1.4131:2.3869,1.5458:2.5772,1.6568:2.6803,1.7642:2.7484,1.8906:2.8011,2.0092:2.8334,2.1237:2.8502,2.1995:2.8558,2.2761:2.86},
+{-0.2496:0.1155,-0.0959:0.1211,0.0509:0.1351,0.1815:0.1597,0.3282:0.2025,0.4167:0.2383,0.4912:0.2748,0.5649:0.3218,0.6267:0.3661,0.7418:0.4664,0.8422:0.583,0.9349:0.7479,1.0388:1.0041,1.1098:1.2638,1.1659:1.5165,1.206:1.7061,1.2467:1.8745,1.2979:2.0465,1.3492:2.1834,1.4222:2.3364,1.5444:2.4978,1.6462:2.5926,1.7635:2.6649,1.8976:2.7168,2.0275:2.7498,2.1785:2.7702,2.281:2.7737},
+{-0.2489:0.1176,-0.065:0.1225,0.1036:0.1443,0.237:0.1737,0.3634:0.2166,0.5213:0.291,0.6512:0.3794,0.7903:0.5156,0.8837:0.6391,0.9813:0.8392,1.0571:1.0498,1.1048:1.2358,1.1561:1.4358,1.2165:1.6639,1.2699:1.8359,1.3309:1.9889,1.3906:2.0977,1.4637:2.2016,1.5683:2.3104,1.6568:2.3785,1.7803:2.4417,1.9004:2.4859,2.0219:2.5161,2.1714:2.5364,2.3224:2.5442},
+]
+CA_DPII = [  # Fuji Crystal Archive DPII
+{-0.0535:0.1023,0.107:0.1063,0.2607:0.1172,0.3261:0.1262,0.3944:0.143,0.4628:0.1669,0.5322:0.2046,0.6006:0.2563,0.7056:0.3745,0.7889:0.5126,0.886:0.7331,1.0297:1.1662,1.1824:1.6232,1.2735:1.8715,1.3707:2.0901,1.4688:2.249,1.5907:2.403,1.7324:2.5291,1.8365:2.5967,1.9356:2.6404,2.0416:2.6682},
+{-0.0486:0.1033,0.0476:0.1053,0.1417:0.1093,0.2577:0.1162,0.3717:0.1391,0.4757:0.1758,0.5709:0.2344,0.669:0.3219,0.8236:0.5851,0.9177:0.8136,0.9732:0.9874,1.0555:1.2854,1.1011:1.4444,1.1784:1.7126,1.2795:1.9858,1.328:2.1,1.3845:2.1894,1.4331:2.256,1.5035:2.3295,1.5857:2.3762,1.6928:2.4228,1.8028:2.4517,1.9207:2.4695,2.0416:2.4805},
+{-0.0476:0.0606,0.0396:0.0646,0.1665:0.0695,0.3003:0.0834,0.4708:0.1301,0.5669:0.1887,0.6551:0.2781,0.7572:0.4371,0.8454:0.6298,0.9197:0.8185,0.999:1.0669,1.0585:1.2904,1.1318:1.5397,1.2071:1.7921,1.2587:1.954,1.3518:2.1387,1.3984:2.2123,1.4579:2.2808,1.5282:2.3444,1.6274:2.394,1.7393:2.4358,1.8484:2.4616,1.9574:2.4735,2.0347:2.4775},
+]
+CA_MAXIMA = [  # Fuji Crystal Archive Maxima
+{-0.0535:0.11101,0.107:0.11535,0.2607:0.12717,0.3261:0.13694,0.3944:0.15517,0.4628:0.1811,0.5322:0.22201,0.6006:0.27811,0.7056:0.40637,0.7889:0.55623,0.886:0.79549,1.0297:1.2655,1.1824:1.7613,1.2735:2.0308,1.3707:2.268,1.4688:2.4404,1.5907:2.6075,1.7324:2.7443,1.8365:2.8177,1.9356:2.8651,2.0416:2.8953},
+{-0.0486:0.11209,0.0476:0.11426,0.1417:0.1186,0.2577:0.12609,0.3717:0.15094,0.4757:0.19076,0.5709:0.25435,0.669:0.3493,0.8236:0.6349,0.9177:0.88284,0.9732:1.0714,1.0555:1.3948,1.1011:1.5673,1.1784:1.8584,1.2795:2.1548,1.328:2.2787,1.3845:2.3757,1.4331:2.448,1.5035:2.5278,1.5857:2.5784,1.6928:2.629,1.8028:2.6604,1.9207:2.6797,2.0416:2.6916},
+{-0.0476:0.065987,0.0396:0.070342,0.1665:0.075678,0.3003:0.090813,0.4708:0.14166,0.5669:0.20547,0.6551:0.30282,0.7572:0.47595,0.8454:0.68578,0.9197:0.89126,0.999:1.1617,1.0585:1.4051,1.1318:1.6766,1.2071:1.9514,1.2587:2.1277,1.3518:2.3288,1.3984:2.4089,1.4579:2.4835,1.5282:2.5528,1.6274:2.6068,1.7393:2.6523,1.8484:2.6804,1.9574:2.6934,2.0347:2.6977},
+]
+
+# name -> (paper curve list, _find_anchor start index). All 0 except Endura
+# Premier, whose raw curve has ~10 leading samples of digitization noise on
+# its Dmin plateau (density oscillating ~0.001-0.003, not a real reversal) --
+# same handling as Ektachrome Radiance III used to need. Verified the real
+# grey-anchor crossing (~0.836 density) lands well clear of it regardless of
+# which film this paper is paired with, since it depends only on the paper's
+# own curve. See tasks/07-real-paper-graded-color-film-ladder.md point 3.
+PAPER_LADDER = {
+"ExtraSoft":   (ENDURA_PREMIER,   10),
+"Soft":        (PORTRA_ENDURA,     0),
+"Normal":      (CA_SUPER_TYPE_C,   0),
+"Punchy":      (CA_DPII,           0),
+"ExtraPunchy": (CA_MAXIMA,         0),
+}
+COLOR_LOOKS = ["ExtraSoft", "Soft", "Normal", "Punchy", "ExtraPunchy"]
+
+# =========================================================================
+# Film data — Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D
+# (reversal, 3 dye layers each, same [red/cyan, green/magenta, blue/yellow]
+# layer order as VELVIA_SENS/VELVIA_CURVES -- confirmed against the raw
+# film_paper_filter_data source JSON directly, not assumed). Like Velvia,
+# all three are reversal (slide) films: none of them can go straight onto
+# negative print paper, so all three route through INTERNEGATIVE_II_CURVES
+# via the same 3-stage film->internegative->paper cascade Velvia uses, not
+# the 2-stage cascade build_trix_cascade()/Portra-style negatives use.
+# =========================================================================
+KODACHROME64_SENS = [  # Kodachrome 64
+{481.31:-1.8515,495.41:-1.7974,503.35:-1.7516,513.05:-1.5836,523.99:-1.4192,533.95:-1.324,544.8:-1.2474,553.44:-1.1447,561.02:-0.9486,574.16:-0.5845,584.83:-0.1643,589.77:0.0271,596.12:0.1811,603.88:0.2838,616.23:0.4099,622.05:0.4986,630.86:0.7087,641.01:0.8534,646.21:0.9169,650.44:0.93,654.85:0.8814,661.73:0.6573,668.43:0.3585,673.02:0.0784,680.78:-0.5752,687.48:-1.0233,700.71:-1.6956},
+{400.09:-1.789,440.04:-1.2428,460.49:-0.9972,467.37:-0.9412,472.66:-0.8553,481.48:-0.5817,491.36:-0.3511,507.05:0.0084,516.05:0.2007,524.25:0.3399,534.39:0.5079,542.5:0.6443,547.44:0.7077,553.44:0.7255,559.88:0.6956,565.08:0.6246,570.9:0.4986,574.78:0.3632,580.78:0.0317,590.65:-0.7806,594.71:-1.1261,598.59:-1.3968,604.06:-1.6863,610.23:-1.9524},
+{400.18:-1.5,402.5:-1,405:-0.5,410.32:0.5733,412.35:0.747,416.31:0.915,419.49:0.9832,423.1:1,430.34:0.9813,439.07:0.9141,447:0.8207,457.32:0.7134,465.43:0.6293,471.69:0.55,478.48:0.4099,485.27:0.2232,500.97:-0.3511,511.46:-0.7993,520.55:-1.2241,530.42:-1.6909,536.16:-1.9888},
+]
+KODACHROME64_CURVES = [
+{-2.3572:3.6757,-2.2676:3.6587,-2.178:3.6296,-2.0884:3.5824,-1.9988:3.5177,-1.9114:3.437,-1.8303:3.3497,-1.7599:3.2623,-1.698:3.1719,-1.6426:3.0819,-1.5914:2.9892,-1.5466:2.9003,-1.506:2.8124,-1.4655:2.7196,-1.4271:2.6347,-1.3887:2.5457,-1.3503:2.4533,-1.3119:2.3637,-1.2756:2.2761,-1.2394:2.1853,-1.201:2.0962,-1.1626:2.0036,-1.1242:1.9161,-1.0836:1.8266,-1.041:1.736,-1.0004:1.6496,-0.9556:1.5605,-0.9066:1.4663,-0.8575:1.3743,-0.8063:1.2812,-0.7551:1.1911,-0.7018:1.0999,-0.6463:1.0091,-0.5887:0.9184,-0.529:0.8278,-0.4671:0.7383,-0.3967:0.6471,-0.3135:0.5557,-0.2239:0.4732,-0.1343:0.4059,-0.0447:0.348,0.0022:0.3259,0.2838:0.201,0.3649:0.1923},
+{-2.3572:3.4447,-2.2676:3.4275,-2.178:3.4021,-2.0884:3.3618,-1.9988:3.3011,-1.9114:3.2203,-1.8367:3.1248,-1.7748:3.0445,-1.7172:2.9534,-1.6639:2.8607,-1.6148:2.7711,-1.57:2.6796,-1.5274:2.5862,-1.4847:2.4921,-1.4463:2.3972,-1.4058:2.3062,-1.3631:2.2166,-1.3247:2.1291,-1.2842:2.0373,-1.2394:1.9453,-1.1626:1.773,-1.1156:1.6778,-1.0687:1.5859,-1.0218:1.4971,-0.9748:1.408,-0.9279:1.3182,-0.8767:1.2253,-0.8212:1.1378,-0.7636:1.0415,-0.706:0.9476,-0.6362:0.8497,-0.4967:0.6576,-0.4244:0.5773,-0.3348:0.5016,-0.2452:0.4289,-0.1556:0.3691,-0.0724:0.3253,0.0726:0.2619,0.2668:0.2041,0.3564:0.1949},
+{-2.3572:3.3128,-2.2676:3.2733,-2.178:3.2272,-2.0884:3.1714,-1.9988:3.1031,-1.9135:3.0215,-1.8388:2.9373,-1.7748:2.8494,-1.7194:2.7605,-1.6724:2.6715,-1.6241:2.5728,-1.5743:2.4851,-1.5274:2.3904,-1.4847:2.2989,-1.442:2.2075,-1.3994:2.1177,-1.3588:2.0313,-1.3183:1.9439,-1.2756:1.849,-1.2308:1.7641,-1.1839:1.6714,-1.137:1.5795,-1.09:1.4886,-1.041:1.3976,-0.9898:1.3064,-0.9364:1.2113,-0.8788:1.1225,-0.8191:1.0303,-0.753:0.9347,-0.6826:0.8459,-0.625:0.7714,-0.5156:0.6613,-0.3987:0.5445,-0.2623:0.4375,-0.1727:0.3728,-0.0831:0.3243,-0.0298:0.3003,0.114:0.2431,0.2668:0.2036,0.3564:0.1979},
+]
+
+PROVIA100F_SENS = [  # Fuji Provia 100F
+{571.53:-0.5466,576.93:-0.454,581.1:-0.3572,587.73:-0.1152,594.85:0.1483,597.91:0.2525,602.58:0.3413,609.94:0.4228,616.56:0.5129,626.13:0.6936,633.99:0.8713,637.73:0.954,640.61:0.9926,644.05:0.9896,649.14:0.9026,658.4:0.4271,665.52:-0.1765,667.91:-0.4032,671.04:-0.587},
+{475.46:-0.6097,481.35:-0.4491,488.47:-0.2163,495.03:-0.0012,499.69:0.1207,511.17:0.3627,524.29:0.5968,533.13:0.7212,538.83:0.7929,542.76:0.8082,547.85:0.7978,554.6:0.7647,559.82:0.7414,565.34:0.7439,570.55:0.7702,574.23:0.7917,579.14:0.7825,582.45:0.7151,586.5:0.5251,591.04:0.1299,594.72:-0.2531,597.61:-0.6134},
+{388.65:-0.8536,394.72:-0.2561,402.21:0.3811,406.13:0.712,409.2:0.8192,414.23:0.9007,420.86:0.9436,426.99:0.9485,435.28:0.962,442.45:0.9988,448.77:1.0551,455.15:1.0809,461.35:1.0613,470.92:0.8744,478.83:0.5527,486.01:0.1513,492.39:-0.201,497.55:-0.5043,501.23:-0.6605},
+]
+PROVIA100F_CURVES = [
+{-3.3819:3.289,-3.1206:3.2916,-2.8652:3.2832,-2.6506:3.2438,-2.4426:3.1769,-2.2662:3.0781,-2.0849:2.9257,-1.9434:2.7206,-1.7072:2.2468,-1.4526:1.758,-1.2504:1.403,-1.0291:1.0288,-0.8087:0.7065,-0.5458:0.4018,-0.3777:0.2528,-0.213:0.1666,-0.0383:0.1155,0.1448:0.0854,0.3236:0.0804,0.827:0.0812},
+{-3.3827:3.4255,-3.1456:3.4255,-2.8003:3.4255,-2.609:3.4037,-2.4551:3.3535,-2.2804:3.2564,-2.1356:3.1258,-2.0125:2.94,-1.8794:2.6872,-1.7587:2.436,-1.599:2.0928,-1.4642:1.7906,-1.2155:1.3394,-0.9617:0.9208,-0.6689:0.5374,-0.475:0.3282,-0.3844:0.2587,-0.2879:0.2009,-0.1547:0.1498,-0.03:0.1122,0.1032:0.0887,0.2529:0.082,0.49:0.082,0.827:0.082},
+{-3.3852:3.3359,-3:3.3368,-2.792:3.325,-2.5507:3.2782,-2.426:3.2313,-2.2779:3.1317,-2.1689:3.017,-2.0033:2.8194,-1.8702:2.5683,-1.678:2.1882,-1.4908:1.8283,-1.2779:1.4482,-1.0349:1.0397,-0.8103:0.7049,-0.6522:0.5165,-0.4584:0.3148,-0.2754:0.1967,-0.0549:0.1197,0.1572:0.0837,0.411:0.082,0.6439:0.0837,0.827:0.0837},
+]
+
+EKTACHROME100D_SENS = [  # Kodak Ektachrome 100D
+{554.09:-1.022,564.36:-0.9702,573.35:-0.6981,588.64:0.438,599.38:0.6926,631.6:1.1752,641.63:1.3438,647.12:1.4066,652.14:1.3945,656.46:1.2226,661.25:0.7135,669.53:0.0083,684.59:-0.9967},
+{472.84:-0.5647,483.11:-0.0413,493.85:0.3939,500.04:0.5295,530.16:0.9934,543.46:1.1873,548.83:1.1961,555.25:1.151,564.59:1.2083,568.33:1.1829,573.46:1.2182,576.97:1.1598,581.87:0.6915,590.51:-0.0028,600.31:-0.6088,604.51:-1.0022},
+{394.75:0.5262,398.02:0.8127,404.44:1.0937,410.97:1.3008,419.61:1.4375,427.08:1.5047,430.35:1.4848,434.44:1.3747,439.11:1.3339,446.11:1.3328,456.38:1.3736,467.94:1.2479,474.94:0.7631,481.71:0.3609,487.2:0.1515,498.4:-0.1041,505.29:-0.2782,514.05:-0.5372,519.65:-0.7686},
+]
+EKTACHROME100D_CURVES = [
+{-2.7798:3.2106,-2.6443:3.2083,-2.5027:3.1863,-2.398:3.1532,-2.3094:3.1028,-2.1973:3.0302,-2.1087:2.9527,-2.0225:2.8481,-1.908:2.6943,-1.8133:2.5527,-1.668:2.3004,-1.4231:1.8757,-1.2483:1.5864,-1.0415:1.254,-0.8224:0.9525,-0.5823:0.6941,-0.3718:0.5022,-0.2142:0.3853,-0.1009:0.3177,0.0186:0.255},
+{-2.7784:3.6098,-2.6935:3.6049,-2.5703:3.5804,-2.4595:3.5424,-2.3314:3.4686,-2.1948:3.3653,-2.0778:3.2115,-1.935:2.9727,-1.8267:2.7498,-1.6434:2.3546,-1.4563:1.9187,-1.3492:1.691,-1.2163:1.4324,-1.0957:1.2232,-0.9406:0.9955,-0.7892:0.7924,-0.6279:0.6201,-0.4691:0.4688,-0.3324:0.3704,-0.1674:0.2856,0.0161:0.2168},
+{-2.7685:3.8081,-2.638:3.7713,-2.5309:3.7185,-2.4201:3.6447,-2.3265:3.5598,-2.2551:3.465,-2.1332:3.2853,-1.9154:2.8421,-1.7259:2.3927,-1.524:1.9002,-1.3234:1.4693,-1.1487:1.1738,-0.9394:0.8661,-0.7757:0.6729,-0.5971:0.4859,-0.4223:0.3555,-0.2438:0.2646,0.0148:0.207},
 ]
 
 # =========================================================================
@@ -154,10 +273,9 @@ FILTERS = {
 # =========================================================================
 # Look definitions
 # =========================================================================
+# Tri-X only -- its 6-grade Polymax ladder is untouched by this change.
 LOOKS = [("ExtraSoft","0"),("Soft","1"),("Normal","2"),("Punchy","3"),("ExtraPunchy","4"),("Hard","5")]
 FILTER_ORDER = ["NoFilter","Yellow8","Orange21","Red25","Green58","Blue47"]
-# Velvia parametric contrast (no real multi-grade data exists)
-VELVIA_GAMMA = {"ExtraSoft":0.75,"Soft":0.85,"Normal":1.0,"Punchy":1.12,"ExtraPunchy":1.25,"Hard":1.45}
 GREY = 0.18
 
 # =========================================================================
@@ -178,9 +296,10 @@ def _weights(sens, filt=None):
     tot=wr+wg+wb
     return (wr/tot,wg/tot,wb/tot) if tot>0 else (1/3,1/3,1/3)
 
-def velvia_layer_weights():
-    """3×3 matrix: per-layer weights mapping Adobe RGB → layer exposure."""
-    return [_weights(layer) for layer in VELVIA_SENS]
+def layer_weights(sens_list):
+    """3×3 matrix: per-layer weights mapping Adobe RGB → layer exposure, for
+    any 3-layer color material (Velvia, Portra 400, Kodak Gold 200, Ektar 100)."""
+    return [_weights(layer) for layer in sens_list]
 
 # =========================================================================
 # Cascade builders
@@ -231,58 +350,69 @@ def _find_anchor(xs, ys, td, increasing, start=0):
                 t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
     raise ValueError("_find_anchor: target density not found in curve range")
 
+def build_print_cascade(stages, start=0):
+    """N-stage print cascade: E -> reflectance.
+
+    `stages` is an ordered list of (curve_dict, increasing) pairs, first =
+    what receives scene light (a camera film, or Velvia's own reversal
+    curve), last = the final print material (a real paper). `increasing`
+    means density rises with exposure (any negative-type material: Tri-X's
+    TRIX_DEV7, the internegative, every paper in PAPER_LADDER); False means
+    density falls with exposure (a reversal dye layer, e.g. Velvia).
+
+    Every stage except the last is a pure forward evaluation via _il() --
+    its density becomes the next stage's printing exposure, calibrated
+    against a fixed "printer light" constant derived from each stage's own
+    local exposure-range midpoint. That's how light physically passes
+    through an intermediate duplicating stage (an internegative) or a
+    negative film feeding a paper: no search needed, exposure flows forward
+    stage to stage. Only the LAST stage is grey-anchored via _find_anchor(),
+    since that's the one physical material whose own density has to
+    reproduce exactly 18% reflectance when the whole chain is fed GREY scene
+    exposure -- exactly the two-stage structure the old build_trix_cascade()/
+    build_velvia_print_cascade() each hardcoded once; this generalizes it to
+    any chain length so a 3-stage film->internegative->paper cascade and a
+    2-stage film->paper cascade share one implementation.
+
+    `start` is passed to the final stage's _find_anchor() call, for papers
+    with leading digitization noise before their real grey crossing (see
+    PAPER_LADDER's Kodak Endura Premier entry).
+    """
+    parsed = [(_sc(curve), inc) for curve, inc in stages]
+    refs = []  # (own exposure-range midpoint, density there) per stage
+    for (xs, ys), _ in parsed:
+        na = 0.5*(xs[0]+xs[-1])
+        refs.append((na, _il(xs, ys, na)))
+
+    (fxs, fys), finc = parsed[-1]
+    fdm = min(fys)
+    td = fdm - math.log10(0.18)
+    lhg = _find_anchor(fxs, fys, td, increasing=finc, start=start)
+
+    pls = []
+    for i in range(len(parsed) - 1):
+        dn_i = refs[i][1]
+        if i == len(parsed) - 2:  # transition into the final (grey-anchored) stage
+            pls.append(lhg + dn_i)
+        else:
+            na_next = refs[i+1][0]
+            pls.append(na_next + dn_i)
+
+    (x0, y0), _ = parsed[0]
+    na0 = refs[0][0]
+
+    def xfer(E):
+        lh = x0[0]-10 if E<=1e-9 else na0+math.log10(E/GREY)
+        D = _il(x0, y0, lh)
+        for i in range(1, len(parsed)):
+            (xs_i, ys_i), _ = parsed[i]
+            D = _il(xs_i, ys_i, pls[i-1]-D)
+        return max(0.0, min(1.0, 10**(-(D-fdm))))
+    return xfer
+
 def build_trix_cascade(paper):
     """Tri-X dev7 negative × Polymax paper → transfer function E→reflectance."""
-    nxs,nys=_sc(TRIX_DEV7); pxs,pys=_sc(paper)
-    na=0.5*(nxs[0]+nxs[-1]); dn=_il(nxs,nys,na); pdm=min(pys)
-    td=pdm-math.log10(0.18)
-    lhg=_find_anchor(pxs,pys,td,increasing=True)
-    pl=lhg+dn
-    def xfer(E):
-        lh=nxs[0]-10 if E<=1e-9 else na+math.log10(E/GREY)
-        dp=_il(pxs,pys,pl-_il(nxs,nys,lh))
-        return max(0.0,min(1.0,10**(-(dp-pdm))))
-    return xfer
-
-def build_velvia_layer(curve, gamma_adj):
-    """Single Velvia dye layer: reversal curve + parametric contrast."""
-    xs,ys=_sc(curve); dm=min(ys)
-    # Anchor: find logH where D gives 18% transmittance (reversal: D falls with exposure)
-    td=dm-math.log10(0.18)  # target D
-    anc=_find_anchor(xs,ys,td,increasing=False)
-    def xfer(E):
-        lh=xs[0]-10 if E<=1e-9 else anc+math.log10(E/GREY)
-        D=_il(xs,ys,lh); T=10**(-(D-dm))
-        if gamma_adj!=1.0 and T>1e-9:
-            T=GREY*(T/GREY)**gamma_adj
-        return max(0.0,min(1.0,T))
-    return xfer
-
-def build_velvia_print_cascade(film_curve, paper_curve):
-    """Velvia dye layer × a real reversal print paper (e.g. Ektachrome Radiance
-    III) → transfer function E→reflectance. Same two-stage structure as
-    build_trix_cascade(), but paper_curve is direct-positive (density falls
-    with print exposure, increasing=False) rather than negative-positive.
-
-    Ektachrome Radiance III's digitized curves each begin with 1-2 samples of
-    ~0.003-0.004 density upticks on their flat Dmax plateau (measurement noise
-    from tracing a nearly-flat line, not a real reversal) before the curve's
-    actual monotonic decline — and before _find_anchor ever reaches the real
-    grey-anchor crossing much further down the curve. Skip past that noise by
-    starting the anchor search at the true (noise-free) peak density among the
-    first few samples, rather than assuming index 0 is already well-behaved.
-    """
-    fxs,fys=_sc(film_curve); pxs,pys=_sc(paper_curve)
-    na=0.5*(fxs[0]+fxs[-1]); dn=_il(fxs,fys,na); pdm=min(pys)
-    td=pdm-math.log10(0.18)
-    lead=pys[:5]; start=lead.index(max(lead))
-    lhg=_find_anchor(pxs,pys,td,increasing=False,start=start)
-    pl=lhg+dn
-    def xfer(E):
-        lh=fxs[0]-10 if E<=1e-9 else na+math.log10(E/GREY)
-        dp=_il(pxs,pys,pl-_il(fxs,fys,lh))
-        return max(0.0,min(1.0,10**(-(dp-pdm))))
-    return xfer
+    return build_print_cascade([(TRIX_DEV7, True), (paper, True)])
 
 # =========================================================================
 # LUT writers
@@ -307,11 +437,11 @@ def write_bw_lut(path, title, weights, xfer, size, use_hk):
                     f.write(f'{v:.6f} {v:.6f} {v:.6f}\n')
 
 def write_color_lut(path, title, lw, xfers, size, use_hk):
-    """Color LUT: per-layer exposure → per-layer reversal curve → RGB out."""
+    """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out."""
     n=size-1
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
-        f.write(f'# Adobe RGB in/out. REPLACES AgX. Velvia 50 color reversal.\n')
+        f.write(f'# Adobe RGB in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
         for bi in range(size):
             for gi in range(size):
@@ -330,19 +460,41 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 # =========================================================================
 # Main
 # =========================================================================
+# key, file prefix, display name, spectral sensitivity, cascade-stage builder
+# (given a layer index and the chosen paper's full 3-layer curve list,
+# returns the ordered [(curve, increasing), ...] list build_print_cascade()
+# expects). All four are reversal (slide) films -- none can go straight onto
+# negative print paper, so all four route through INTERNEGATIVE_II_CURVES via
+# the same 3-stage film->internegative->paper cascade (see README "What these
+# replicate"). A camera negative (e.g. Portra) would use a 2-stage cascade
+# instead, the same shape as build_trix_cascade() -- deliberately not part of
+# this lineup, see tasks/DONE-07-... for why negative films were removed.
+COLOR_FILMS = [
+    ("velvia", "Velvia50", "Velvia 50", VELVIA_SENS,
+     lambda li, paper: [(VELVIA_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+    ("kodachrome64", "Kodachrome64", "Kodachrome 64", KODACHROME64_SENS,
+     lambda li, paper: [(KODACHROME64_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+    ("provia100f", "Provia100F", "Fuji Provia 100F", PROVIA100F_SENS,
+     lambda li, paper: [(PROVIA100F_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+    ("ektachrome100d", "Ektachrome100D", "Kodak Ektachrome 100D", EKTACHROME100D_SENS,
+     lambda li, paper: [(EKTACHROME100D_CURVES[li], False), (INTERNEGATIVE_II_CURVES[li], True), (paper[li], True)]),
+]
+COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
+
 def main():
     here=os.path.dirname(os.path.abspath(__file__))
-    p=argparse.ArgumentParser(description="Generate Tri-X 400 + Velvia 50 film emulation LUTs.")
+    p=argparse.ArgumentParser(description="Generate Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia 100F and Kodak Ektachrome 100D film emulation LUTs.")
     p.add_argument('--size',type=int,default=65,help='LUT grid N (N^3). Default 65.')
     p.add_argument('--output',default=here)
-    p.add_argument('--only',choices=['trix','velvia'],help='Generate only one stock.')
+    p.add_argument('--only',nargs='+',choices=['trix']+COLOR_FILM_KEYS,help='Generate only these film(s). Default: all.')
     args=p.parse_args()
     if not 9<=args.size<=129: p.error("--size 9..129")
+    only=set(args.only) if args.only else {'trix',*COLOR_FILM_KEYS}
 
     t0=time.time(); total=0
 
     # --- Tri-X ---
-    if args.only!='velvia':
+    if 'trix' in only:
         trix_weights={fn:_weights(TRIX_SENS,FILTERS.get(fn)) for fn in FILTER_ORDER}
         for variant,use_hk in [("trix_classic",False),("trix_modern",True)]:
             outdir=os.path.join(args.output,variant)
@@ -358,29 +510,24 @@ def main():
                     total+=1
                     print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
-    # --- Velvia ---
-    if args.only!='trix':
-        vlw=velvia_layer_weights()
-        for variant,use_hk in [("velvia_classic",False),("velvia_modern",True)]:
-            outdir=os.path.join(args.output,variant)
-            os.makedirs(outdir,exist_ok=True)
-            print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {len(LOOKS)+1} LUTs")
-            for look,_ in LOOKS:
-                gm=VELVIA_GAMMA[look]
-                xfers=[build_velvia_layer(VELVIA_CURVES[li],gm) for li in range(3)]
-                fname=f"Velvia50_{look}.cube"
+    # --- Color films: Velvia 50, Portra 400, Kodak Gold 200, Ektar 100 ---
+    # Every look is a real paper choice (PAPER_LADDER), no synthetic gamma.
+    for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
+        if key not in only: continue
+        lw=layer_weights(sens)
+        outdir=os.path.join(args.output,key)
+        os.makedirs(outdir,exist_ok=True)
+        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {len(COLOR_LOOKS)*2} LUTs")
+        for variant_label,use_hk in [("Classic",False),("Modern",True)]:
+            for look in COLOR_LOOKS:
+                paper,start=PAPER_LADDER[look]
+                xfers=[build_print_cascade(stage_fn(li,paper),start=start) for li in range(3)]
+                fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
                 write_color_lut(os.path.join(outdir,fname),
-                                f"Velvia 50 {look}",vlw,xfers,args.size,use_hk)
+                                f"{dispname} {variant_label} {look}",lw,xfers,args.size,use_hk)
                 total+=1
                 print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
-            xfers=[build_velvia_print_cascade(VELVIA_CURVES[li],EKTACHROME_RADIANCE_III[li]) for li in range(3)]
-            fname="Velvia50_RadianceIII.cube"
-            t1=time.time()
-            write_color_lut(os.path.join(outdir,fname),
-                            "Velvia 50 RadianceIII",vlw,xfers,args.size,use_hk)
-            total+=1
-            print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
     print(f"\nDone. {total} LUTs in {time.time()-t0:.0f}s")
 
