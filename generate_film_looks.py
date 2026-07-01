@@ -79,7 +79,7 @@ def hk_mul(R,G,B):
 # Interpolation
 # =========================================================================
 def _il10(ks,vs,wl):
-    if wl<ks[0]: return 10**vs[0]
+    if wl<ks[0]: return 0.0
     if wl>ks[-1]: return 0.0
     for i in range(len(ks)-1):
         if ks[i]<=wl<=ks[i+1]:
