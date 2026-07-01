@@ -307,9 +307,9 @@ def main():
             outdir=os.path.join(args.output,variant)
             os.makedirs(outdir,exist_ok=True)
             print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {len(LOOKS)*len(FILTER_ORDER)} LUTs")
-            for fn in FILTER_ORDER:
-                for look,grade in LOOKS:
-                    xfer=build_trix_cascade(POLY[grade])
+            for look,grade in LOOKS:
+                xfer=build_trix_cascade(POLY[grade])
+                for fn in FILTER_ORDER:
                     fname=f"TriX_{fn}_{look}.cube"
                     t1=time.time()
                     write_bw_lut(os.path.join(outdir,fname),
