@@ -277,11 +277,12 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
                 for ri in range(size):
                     R,G,B=adec(ri/n),adec(gi/n),adec(bi/n)
                     # Per-layer exposure (arithmetic, not geometric — each layer sees its own band)
+                    hk=hk_mul(R,G,B) if use_hk else 1.0
                     out=[]
                     for li in range(3):
                         wr,wg,wb=lw[li]
                         E=wr*R+wg*G+wb*B
-                        if use_hk and E>1e-9: E*=hk_mul(R,G,B)
+                        if E>1e-9: E*=hk
                         out.append(xfers[li](E))
                     f.write(f'{aenc(out[0]):.6f} {aenc(out[1]):.6f} {aenc(out[2]):.6f}\n')
 
