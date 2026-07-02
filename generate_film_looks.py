@@ -341,10 +341,14 @@ def _find_anchor(xs, ys, td, increasing, start=0):
     known to be noise rather than a real reversal (e.g. Ektachrome Radiance
     III's first two points sit on an essentially flat Dmax plateau and wobble
     by ~0.003-0.004 density — digitization noise, not solarization — nowhere
-    near where any of its grey-anchor crossings actually fall).
+    near where any of its grey-anchor crossings actually fall). The pre-loop
+    endpoint clamp is start-aware too: it checks ys[start]/xs[start], not
+    ys[0]/xs[0], so a target density that falls within the skipped noisy
+    leading samples clamps to the first trusted sample rather than silently
+    returning a noisy xs[0].
     """
     if increasing:
-        if td<=ys[0]: return xs[0]
+        if td<=ys[start]: return xs[start]
         if td>=ys[-1]: return xs[-1]
         for i in range(start,len(xs)-1):
             if ys[i]>ys[i+1]:
@@ -355,7 +359,7 @@ def _find_anchor(xs, ys, td, increasing, start=0):
             if ys[i]<=td<=ys[i+1]:
                 t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
     else:
-        if td>=ys[0]: return xs[0]
+        if td>=ys[start]: return xs[start]
         if td<=ys[-1]: return xs[-1]
         for i in range(start,len(xs)-1):
             if ys[i]<ys[i+1]:
