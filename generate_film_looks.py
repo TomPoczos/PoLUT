@@ -51,54 +51,71 @@ def aenc(c): return max(0.0,min(1.0,c))**(1.0/_AG)
 # =========================================================================
 # Rec.2020 (D65) + SMPTE ST 2084 (PQ) -- the other LUT-module application
 # colour space this tool can target (see main()'s --colorspace). Rec.2020's
-# primaries are wider than Adobe RGB's, and PQ is a genuine wide-range
-# perceptual encoding (unlike a fixed gamma, it doesn't clip highlights at a
-# fixed stops-above-grey point the way Adobe RGB's gamma does -- see README
-# "Highlight clipping").
+# primaries are wider than Adobe RGB's. PQ does NOT raise the highlight
+# ceiling: both clip at linear pixel value 1.0 (~grey +2.5 stops at 0 EV),
+# because encoded 1.0 means linear 1.0 for any [0,1]-domain TRC, gamma or PQ
+# alike. All PQ changes is how the [0,1] code axis is distributed (most of it
+# goes to shadow/mid detail). See the comment on pqenc/pqdec below for the
+# full reasoning and -- crucially -- the one darktable setup requirement that
+# makes or breaks it.
 # =========================================================================
 _MA_REC2020 = [[1.7166512,-0.3556708,-0.2533663],[-0.6666844,1.6164812,0.0157685],[0.0176399,-0.0427706,0.9421031]]
 _MA_INV_REC2020 = [[0.6369580,0.1446169,0.1688810],[0.2627002,0.6779981,0.0593017],[0.0000000,0.0280727,1.0609851]]
-# SMPTE ST 2084 (PQ) constants. Unlike a gamma curve, PQ's perceptual spacing
-# is hard-wired to an absolute 10000 cd/m^2 reference -- that's the whole
-# point of it being a wide-range encoding. Treating the raw formula's [0,1]
-# domain as "this encoding's peak" the same way adec()/aenc() treat Adobe
-# RGB gamma's [0,1] domain (an earlier version of this code did exactly
-# that) is wrong for PQ specifically: relabeling an endpoint doesn't rescale
-# a curve whose *shape* assumes an absolute reference. Concretely, that
-# earlier version put middle grey (0.18) at code 0.816 -- almost all the
-# LUT's grid resolution above black went to encoding sub-grey shadow detail,
-# while the entire visible grey-to-highlight range was crushed into the top
-# ~18% of the code axis. Verified against a real render: this produced
-# exactly the crushed, over-contrasty, oversaturated look that gave it away.
+# SMPTE ST 2084 (PQ) constants, applied completely unscaled -- deliberately.
+# Several earlier versions of this comment (see git history) got this wrong
+# in different directions, so the reasoning is spelled out in full.
 #
-# Fix: apply the real ST.2084 formula on a domain rescaled so that linear
-# value 1.0 (this pipeline's usual GREY=0.18-relative peak convention, the
-# same role adec()/aenc()'s 1.0 plays) represents a chosen real reference
-# white in absolute nits, not literally 10000 cd/m^2. _PQ_REF_NITS=203 is
-# ITU-R BT.2408-4 Table 2's published reference level for 100%-reflecting
-# diffuse white / graphics in HDR PQ mastering -- real broadcast data, and
-# the closest published quantity to what GREY means here (a diffuse
-# reflectance anchor, not a display's nominal peak). At this scale grey
-# lands at code ~0.41 (close to Adobe RGB's 0.459, so the two colour spaces
-# stay perceptually comparable) with ~8 stops of highlight headroom above it
-# before code 1.0 -- vs. Adobe RGB gamma's hard clip at ~2.5 stops, which is
-# the entire reason --colorspace pq2020 exists (see README "Highlight
-# clipping"). Exposure values above 1.0 that this produces are safe: every
-# transfer-curve evaluation downstream goes through _il(), which clamps to
-# the digitized curve's own endpoint rather than extrapolating, so bright
-# highlights simply clip to the film's natural shoulder density.
+# darktable's PQ Rec.2020 ICC profile is a standard, normalised matrix-
+# shaper: D65 white, Rec.2020 primaries, TRC = `_PQ_fct` in
+# src/common/colorspaces.c (confirmed by reading it, and by reading the fast
+# matrix+TRC path in src/common/iop_profile.c that actually runs for lut3d).
+# It applies this exact formula, with these exact constants, to the
+# pipeline's scene-referred linear pixel value, with NO reference-white or
+# reference-nits scaling anywhere -- the profile is normalised so linear 1.0
+# is the connection-space white, the same role adec/aenc's 1.0 plays. So for
+# a code position `v` to mean the same exposure here as to darktable, pqdec
+# must be the *exact* inverse of what darktable computes: the same unscaled
+# formula. Verified numerically -- pqenc() below matches darktable's inverse
+# _PQ_fct to <1e-4 across the range (linear 0.18 -> code 0.816 in both).
+#
+# Do NOT rescale pqdec/pqenc. A previous committed version multiplied by a
+# 203/10000-nit "reference white" factor; any factor K silently demands a
+# matching exposure change before the LUT3D module, and without it the film
+# math reads every image ~5.6 stops overexposed (grey lands on the paper's
+# high-density shoulder) while darktable decodes the output at the wrong
+# brightness -- exactly the everything-blown regression that produced.
+#
+# Staying unscaled means grey (0.18) lands at code ~0.816, not near the
+# middle the way Adobe RGB's aenc(0.18)=0.459 does. That is correct and needs
+# NO exposure compensation: the LUT is grey-anchored on *scene-linear* 0.18
+# (see GREY), so at 0 EV scene 0.18 -> code 0.816 -> LUT -> code 0.816 ->
+# 0.18 out. Grey renders as grey; the transfer is identical to the adobergb
+# build in scene-linear terms, and 33^3 reproduces it to <0.02. (An earlier
+# version of this comment claimed you must expose ~-5 EV to move grey off the
+# "compressed" part of the code axis -- that is wrong and would drop grey ~5
+# stops, rendering the image near-black. The LUT already compensates for
+# where grey sits on the axis; grid precision there is fine.)
+#
+# THE ONE REAL FOOTGUN, and the likeliest cause if a pq2020 render looks
+# broken: a PQ-baked .cube renders correctly ONLY if darktable's LUT 3D
+# module has "application color space" = "PQ Rec2020 RGB" (this project's
+# darktable branch adds it) and, per the project's intent, "input" =
+# scene-referred. That dropdown DEFAULTS to sRGB. An Adobe RGB cube tolerates
+# the sRGB default because Adobe gamma ~= sRGB (only a slight tone shift), so
+# it is easy to never notice the dropdown -- but a PQ cube read as sRGB is a
+# wild curve mismatch: the effective transfer is flat and dark from -3 to +1
+# stop, then steps to white by +2, i.e. an image made of only crushed and
+# blown pixels, exposure just shifting the ratio. If pq2020 looks like that,
+# fix the dropdown, not the LUT.
 _PQ_M1,_PQ_M2 = 0.1593017578125,78.84375
 _PQ_C1,_PQ_C2,_PQ_C3 = 0.8359375,18.8515625,18.6875
-_PQ_REF_NITS = 203.0
-_PQ_PEAK_FRAC = _PQ_REF_NITS/10000.0
 def pqdec(v):
     v=max(0.0,min(1.0,v))
     vp=v**(1.0/_PQ_M2)
     num=max(vp-_PQ_C1,0.0); den=_PQ_C2-_PQ_C3*vp
-    l10k=(num/den)**(1.0/_PQ_M1) if den>0 else 0.0
-    return l10k/_PQ_PEAK_FRAC
+    return (num/den)**(1.0/_PQ_M1) if den>0 else 0.0
 def pqenc(c):
-    c=max(0.0,min(1.0,c))*_PQ_PEAK_FRAC
+    c=max(0.0,min(1.0,c))
     cp=c**_PQ_M1
     return ((_PQ_C1+_PQ_C2*cp)/(1.0+_PQ_C3*cp))**_PQ_M2
 
