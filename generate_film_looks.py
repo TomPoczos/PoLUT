@@ -185,12 +185,13 @@ INTERNEGATIVE_II_LAD_AIM = [0.90, 1.30, 1.70]
 # 2383/2393/5381-series, Technicolor V) and duratrans/backlit display
 # materials (Fujiflex, Duraflex Plus) as the wrong medium regardless of
 # gamma fit. See README "Choosing a print paper" for the full selection
-# writeup and the compounded-gamma table behind PAPER_LADDER's ordering.
+# writeup and the measured-span table (tools/measure_paper_punch.py) behind
+# PAPER_LADDER's ordering.
 # =========================================================================
-ENDURA_PREMIER = [  # Kodak Endura Premier Paper
-{-2.9446:0.0931,-2.8606:0.092,-2.7766:0.0937,-2.6926:0.0937,-2.6086:0.0912,-2.5246:0.0909,-2.4406:0.0909,-2.3566:0.0935,-2.2726:0.0937,-2.1886:0.0937,-2.1046:0.093,-2.0206:0.0964,-1.9366:0.1013,-1.8525:0.1124,-1.7685:0.1406,-1.6845:0.191,-1.6105:0.2705,-1.5545:0.3547,-1.5105:0.4404,-1.4638:0.5335,-1.4309:0.62,-1.4042:0.7044,-1.3765:0.7926,-1.3488:0.8864,-1.3263:0.9776,-1.3025:1.0709,-1.2805:1.1646,-1.2587:1.2564,-1.2385:1.3468,-1.2185:1.4344,-1.1983:1.5225,-1.1745:1.6142,-1.1521:1.707,-1.1313:1.7947,-1.1125:1.8862,-1.0905:1.9626,-1.0316:2.1987,-1.0025:2.2889,-0.9685:2.379,-0.9305:2.4631,-0.8845:2.5479,-0.8165:2.6303,-0.7325:2.6905,-0.6485:2.7172,-0.5645:2.7341,-0.4805:2.7502,-0.3965:2.7569,-0.3124:2.7554,-0.2284:2.7482,-0.1624:2.7397},
-{-2.9446:0.0939,-2.8606:0.092,-2.7766:0.0937,-2.6926:0.0937,-2.6086:0.0912,-2.5246:0.0909,-2.4406:0.0909,-2.3566:0.0935,-2.2726:0.0937,-2.1886:0.0937,-2.1046:0.093,-2.0206:0.0959,-1.9366:0.1013,-1.8525:0.1124,-1.7685:0.1406,-1.6845:0.191,-1.6105:0.2705,-1.5545:0.3547,-1.5105:0.4404,-1.4638:0.5335,-1.4309:0.62,-1.4042:0.7044,-1.3765:0.7926,-1.3488:0.8864,-1.3263:0.9759,-1.3027:1.0665,-1.2825:1.1552,-1.2625:1.2421,-1.2425:1.33,-1.2225:1.4172,-1.2025:1.5035,-1.1823:1.5863,-1.1601:1.6748,-1.1365:1.7683,-1.1185:1.8631,-1.0945:1.96,-1.0725:2.0221,-0.9845:2.2341,-0.9253:2.3129,-0.8525:2.4016,-0.7685:2.4558,-0.6845:2.4845,-0.6005:2.4977,-0.5165:2.5111,-0.4325:2.5211,-0.3484:2.5248,-0.2644:2.5241,-0.1804:2.5186},
-{-2.9486:0.0937,-2.8646:0.092,-2.7806:0.0937,-2.6966:0.0937,-2.6126:0.0913,-2.5286:0.0909,-2.4446:0.0909,-2.3606:0.0933,-2.2766:0.0937,-2.1926:0.0937,-2.1086:0.0931,-2.0246:0.096,-1.9406:0.1009,-1.8565:0.1116,-1.7725:0.1387,-1.6885:0.1877,-1.6145:0.2652,-1.5585:0.3478,-1.5145:0.432,-1.4701:0.5193,-1.4385:0.5998,-1.4085:0.689,-1.3805:0.7793,-1.3545:0.8682,-1.3305:0.9577,-1.3065:1.0547,-1.2827:1.1511,-1.2625:1.2421,-1.2425:1.33,-1.2225:1.4172,-1.2025:1.5019,-1.1823:1.5863,-1.1601:1.6746,-1.1365:1.7683,-1.1185:1.8631,-1.0945:1.96,-1.0645:2.0603,-0.9805:2.2409,-0.9325:2.2973,-0.8245:2.3832,-0.7405:2.4127,-0.6565:2.4237,-0.5725:2.4294,-0.4885:2.4366,-0.4045:2.4418,-0.3204:2.4429,-0.2364:2.4417,-0.1664:2.4383},
+CA_PRO_PDII = [  # Fuji Crystal Archive Pro PDII
+{0.6569:0.1224,0.7192:0.1231,0.7815:0.1275,0.8438:0.1333,0.906:0.1418,0.9683:0.1531,1.0306:0.1672,1.0929:0.1855,1.1552:0.2074,1.2175:0.2336,1.2779:0.262,1.3129:0.2778,1.4183:0.3523,1.5294:0.4599,1.6601:0.6393,1.7141:0.7519,1.7607:0.8688,1.786:0.9421,1.8132:1.0065,1.8327:1.0837,1.8522:1.1483,1.8642:1.2121,1.8794:1.2921,1.8911:1.332,1.9297:1.5461,1.9641:1.7418,1.9722:1.7435,2.0421:2.0444,2.0605:2.106,2.0819:2.1693,2.1072:2.2371,2.1364:2.3035,2.1695:2.3693,2.2084:2.4345,2.2518:2.4949,2.3077:2.5605,2.37:2.618,2.4323:2.6642,2.4871:2.6959,2.5569:2.7291,2.6192:2.7514,2.6815:2.7687,2.7438:2.7811,2.8061:2.7899,2.8684:2.7953,2.9248:2.7964},
+{0.6569:0.1477,0.7192:0.1497,0.7795:0.1531,0.8308:0.158,0.906:0.1676,0.9528:0.1751,1.0473:0.1959,1.1674:0.2371,1.2979:0.2957,1.4473:0.3957,1.6033:0.5646,1.7196:0.7657,1.7839:0.9242,1.8502:1.1407,1.8625:1.1989,1.8775:1.2513,1.9106:1.398,1.9797:1.752,2.039:1.9795,2.058:2.0737,2.0897:2.1382,2.1146:2.1962,2.1377:2.2558,2.1897:2.3383,2.2259:2.3908,2.2649:2.4393,2.3934:2.5595,2.4498:2.5961,2.5338:2.639,2.6036:2.6648,2.6659:2.6823,2.7325:2.6959,2.7948:2.7052,2.8528:2.7105,2.9151:2.7143,2.9482:2.7145},
+{0.6569:0.1477,0.7192:0.1502,0.7795:0.1531,0.8308:0.158,0.906:0.1674,0.9683:0.1789,1.0273:0.19,1.139:0.2201,1.2449:0.2607,1.3546:0.3183,1.529:0.4618,1.5796:0.525,1.6205:0.5841,1.6614:0.6494,1.6964:0.7164,1.7276:0.7823,1.7548:0.8486,1.7782:0.9071,1.7996:0.9762,1.8191:1.0386,1.8385:1.1153,1.8561:1.178,1.8758:1.2491,1.9359:1.5117,1.966:1.6263,2.0371:1.8554,2.0838:1.9672,2.1383:2.0733,2.2104:2.1768,2.2921:2.265,2.3895:2.3414,2.4985:2.4004,2.6114:2.4427,2.7301:2.4716,2.8508:2.4868,2.9657:2.493},
 ]
 PORTRA_ENDURA = [  # Kodak Portra Endura Paper
 {-3:0.0888,-2.3878:0.0952,-2.2468:0.1081,-2.1715:0.1243,-2.0929:0.1469,-2.016:0.1791,-1.9455:0.2259,-1.8734:0.2953,-1.7981:0.3873,-1.7308:0.4922,-1.6346:0.7101,-1.5385:0.9699,-1.4423:1.2604,-1.3333:1.6154,-1.2548:1.8687,-1.2212:1.9672,-1.1731:2.0931,-1.117:2.2028,-1.0673:2.2835,-1.0128:2.3609,-0.9391:2.4287,-0.8365:2.4965,-0.7372:2.5352,-0.609:2.5724,-0.484:2.6046,-0.3718:2.624,-0.3045:2.6321,-0.1603:2.6563},
@@ -207,29 +208,63 @@ CA_DPII = [  # Fuji Crystal Archive DPII
 {-0.0486:0.1033,0.0476:0.1053,0.1417:0.1093,0.2577:0.1162,0.3717:0.1391,0.4757:0.1758,0.5709:0.2344,0.669:0.3219,0.8236:0.5851,0.9177:0.8136,0.9732:0.9874,1.0555:1.2854,1.1011:1.4444,1.1784:1.7126,1.2795:1.9858,1.328:2.1,1.3845:2.1894,1.4331:2.256,1.5035:2.3295,1.5857:2.3762,1.6928:2.4228,1.8028:2.4517,1.9207:2.4695,2.0416:2.4805},
 {-0.0476:0.0606,0.0396:0.0646,0.1665:0.0695,0.3003:0.0834,0.4708:0.1301,0.5669:0.1887,0.6551:0.2781,0.7572:0.4371,0.8454:0.6298,0.9197:0.8185,0.999:1.0669,1.0585:1.2904,1.1318:1.5397,1.2071:1.7921,1.2587:1.954,1.3518:2.1387,1.3984:2.2123,1.4579:2.2808,1.5282:2.3444,1.6274:2.394,1.7393:2.4358,1.8484:2.4616,1.9574:2.4735,2.0347:2.4775},
 ]
-CA_MAXIMA = [  # Fuji Crystal Archive Maxima
-{-0.0535:0.11101,0.107:0.11535,0.2607:0.12717,0.3261:0.13694,0.3944:0.15517,0.4628:0.1811,0.5322:0.22201,0.6006:0.27811,0.7056:0.40637,0.7889:0.55623,0.886:0.79549,1.0297:1.2655,1.1824:1.7613,1.2735:2.0308,1.3707:2.268,1.4688:2.4404,1.5907:2.6075,1.7324:2.7443,1.8365:2.8177,1.9356:2.8651,2.0416:2.8953},
-{-0.0486:0.11209,0.0476:0.11426,0.1417:0.1186,0.2577:0.12609,0.3717:0.15094,0.4757:0.19076,0.5709:0.25435,0.669:0.3493,0.8236:0.6349,0.9177:0.88284,0.9732:1.0714,1.0555:1.3948,1.1011:1.5673,1.1784:1.8584,1.2795:2.1548,1.328:2.2787,1.3845:2.3757,1.4331:2.448,1.5035:2.5278,1.5857:2.5784,1.6928:2.629,1.8028:2.6604,1.9207:2.6797,2.0416:2.6916},
-{-0.0476:0.065987,0.0396:0.070342,0.1665:0.075678,0.3003:0.090813,0.4708:0.14166,0.5669:0.20547,0.6551:0.30282,0.7572:0.47595,0.8454:0.68578,0.9197:0.89126,0.999:1.1617,1.0585:1.4051,1.1318:1.6766,1.2071:1.9514,1.2587:2.1277,1.3518:2.3288,1.3984:2.4089,1.4579:2.4835,1.5282:2.5528,1.6274:2.6068,1.7393:2.6523,1.8484:2.6804,1.9574:2.6934,2.0347:2.6977},
+SUPRA_ENDURA = [  # Kodak Supra Endura Paper
+{-2.8178:0.0827,-2.4666:0.0827,-2.3277:0.0827,-2.1782:0.0891,-2.0367:0.1005,-1.9056:0.1329,-1.827:0.1718,-1.7274:0.248,-1.6592:0.3306,-1.5662:0.4895,-1.502:0.6337,-1.4482:0.8039,-1.3722:1.1183,-1.325:1.3339,-1.2805:1.5867,-1.2385:1.8006,-1.194:2.0016,-1.1533:2.1669,-1.114:2.3096,-1.0721:2.4117,-1.0315:2.4749,-0.9934:2.5235,-0.9436:2.5673,-0.8781:2.5997,-0.8204:2.6256,-0.7366:2.6451,-0.6343:2.658,-0.5636:2.6467,-0.5059:2.6272},
+{-2.8165:0.0827,-2.4797:0.0827,-2.0839:0.0859,-1.9817:0.0972,-1.8899:0.1135,-1.8296:0.1394,-1.7851:0.1702,-1.7379:0.2075,-1.6828:0.269,-1.616:0.3695,-1.5413:0.5138,-1.4758:0.6759,-1.3958:0.953,-1.3172:1.2853,-1.2333:1.6872,-1.1389:2.0405,-1.0983:2.1605,-1.0524:2.2577,-0.9987:2.3485,-0.9463:2.4165,-0.8912:2.4668,-0.8283:2.5138,-0.7733:2.5462,-0.7077:2.5737,-0.6474:2.59,-0.5924:2.5932,-0.5452:2.5883,-0.5007:2.5786},
+{-2.8126:0.0859,-2.3696:0.0843,-2.097:0.0924,-1.9633:0.1167,-1.8716:0.1475,-1.7877:0.1977,-1.7169:0.2577,-1.6461:0.3485,-1.5858:0.4489,-1.519:0.5932,-1.4666:0.7342,-1.4063:0.9579,-1.346:1.2237,-1.2962:1.5024,-1.2464:1.7715,-1.1953:1.9984,-1.1507:2.1507,-1.1035:2.2836,-1.0668:2.3485,-1.0223:2.4068,-0.9725:2.4489,-0.9253:2.4765,-0.8729:2.4895,-0.8152:2.5008,-0.768:2.5089,-0.7025:2.5154,-0.6396:2.5203,-0.5819:2.5105,-0.5242:2.4878,-0.4954:2.4749},
 ]
 
 # name -> paper curve list (3 layers), used as the final stage in every
 # color film's cascade. Each layer's own _find_anchor start index (needed
-# only by Endura Premier, whose raw curve has ~10 leading samples of
-# digitization noise on its Dmin plateau -- density oscillating
-# ~0.001-0.003, not a real reversal, same handling Ektachrome Radiance III
-# used to need) is detected automatically per layer by
-# _detect_lead_noise_start() rather than hand-derived here -- see that
-# function's docstring. Verified the real grey-anchor crossing (~0.836
-# density) lands well clear of Endura Premier's noisy samples regardless of
-# which film this paper is paired with, since it depends only on the
-# paper's own curve.
+# only by Kodak Supra Endura, whose raw curve has a single leading
+# digitization-noise sample on its blue/yellow-forming layer -- density
+# oscillating ~0.0016, not a real reversal, the same kind of noise Kodak
+# Endura Premier and Fuji Provia 100F needed handling for, just smaller) is
+# detected automatically per layer by _detect_lead_noise_start() rather than
+# hand-derived here -- see that function's docstring.
+#
+# This assignment was re-derived from tools/measure_paper_punch.py, which
+# runs every real candidate paper (film_paper_filter_data/papers/color/
+# for_negatives/, the same 7-paper "legitimate reflective RA-4" pool
+# identified in tasks/DONE-07) through the actual production cascade
+# (build_print_cascade(), _find_anchor-calibrated exactly like every shipped
+# LUT) instead of estimating contrast from a regression slope over each
+# paper's own curve in isolation. The isolated-regression estimate that
+# originally produced this ladder (see README "Choosing a print paper" git
+# history) turned out not to predict what the real cascade renders: it
+# ranked Kodak Endura Premier "ExtraSoft" when it's actually the punchiest
+# candidate of the 7 on every film, put Fuji Crystal Archive Maxima and DPII
+# so close together ("Punchy"/"ExtraPunchy") they're barely distinguishable
+# side by side, and never considered 2 real, eligible papers (Fuji Crystal
+# Archive Pro PDII, Kodak Supra Endura) that were digitized in the source
+# pool but never promoted into this ladder.
+#
+# Measured full-range span (white-corner minus black-corner encoded output,
+# averaged across the 3 layers -- the real cascade's own answer to "how
+# punchy does this actually render," not a curve-fit proxy) is consistent
+# in rank order across all 4 color films, so one shared ladder still works
+# for all of them; see tools/measure_paper_punch.py's own output for the
+# per-film numbers, and README "Choosing a print paper" for the summary
+# table. Two of the 7 real candidates (Kodak Endura Premier, Fuji Crystal
+# Archive Maxima) measure well but sit too close to their neighbors to add a
+# usefully distinct rung, so -- same as the previous ladder leaving 2 papers
+# unused -- they're left out here in favor of Pro PDII and Supra Endura,
+# which are not.
+#
+# One real, measured non-monotonicity worth flagging (same kind of
+# curve-crossover documented in tasks/06 for Tri-X's Polymax grades 0/1,
+# not a code defect): Fuji Crystal Archive Pro PDII ("Soft") has *more*
+# local midtone gamma than Kodak Portra Endura ("Normal") on every film,
+# even though Pro PDII's overall span is lower -- Portra Endura spreads its
+# contrast more gradually across a wider range instead of concentrating it
+# around grey. So Soft vs Normal are correctly ordered by overall
+# shadow-to-highlight spread, not by local contrast right around grey.
 PAPER_LADDER = {
-"ExtraSoft":   ENDURA_PREMIER,
-"Soft":        PORTRA_ENDURA,
-"Normal":      CA_SUPER_TYPE_C,
+"ExtraSoft":   CA_SUPER_TYPE_C,
+"Soft":        CA_PRO_PDII,
+"Normal":      PORTRA_ENDURA,
 "Punchy":      CA_DPII,
-"ExtraPunchy": CA_MAXIMA,
+"ExtraPunchy": SUPRA_ENDURA,
 }
 COLOR_LOOKS = ["ExtraSoft", "Soft", "Normal", "Punchy", "ExtraPunchy"]
 
@@ -391,8 +426,8 @@ def _detect_lead_noise_start(curve, increasing, max_lead=15):
     actually seen in this file's data) rather than the whole curve. Returns
     the index right after the last violation found in that window -- 0 if
     the leading window is already clean, which every currently-shipped
-    curve except Endura Premier (all 3 layers) and Provia 100F (layers 0
-    and 2) is.
+    curve except Provia 100F (layers 0 and 2) and Kodak Supra Endura (layer
+    2) is.
     """
     xs, ys = _sc(curve)
     n = min(max_lead, len(ys) - 1)
@@ -414,10 +449,10 @@ def build_print_cascade(stages):
     PAPER_LADDER); False means density falls with exposure (a reversal dye
     layer, e.g. Velvia). `start` is passed to whichever _find_anchor()
     search that stage needs, for curves with leading digitization noise
-    before the real crossing (e.g. Kodak Endura Premier as a final stage,
-    or Fuji Provia 100F's own reversal curve as a non-final one -- both
-    have a tiny Dmax-plateau wobble in their first sample or two; 0 for
-    every other curve in this file, which are clean). Callers get this via
+    before the real crossing (e.g. Kodak Supra Endura as a final stage, or
+    Fuji Provia 100F's own reversal curve as a non-final one -- both have a
+    tiny Dmax-plateau wobble in their first sample or two; 0 for every other
+    curve in this file, which are clean). Callers get this via
     _detect_lead_noise_start() rather than a hand-derived constant, so it
     stays correct as curve data changes. `ref_d` is the target
     density _find_anchor() searches for to find that stage's own
@@ -679,8 +714,8 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 # Every stage's `start` is auto-detected per curve/layer via
 # _detect_lead_noise_start() rather than hand-derived -- e.g. Provia 100F's
 # own curve (layers 0 and 2) has the same kind of tiny leading Dmax-plateau
-# digitization noise Endura Premier has, and it's a non-final stage whose
-# own reference point gets searched too (see build_print_cascade
+# digitization noise Kodak Supra Endura has, and it's a non-final stage
+# whose own reference point gets searched too (see build_print_cascade
 # docstring), but this now requires no per-film magic number to discover
 # that or keep it correct as data changes.
 #

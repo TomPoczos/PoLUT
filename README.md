@@ -65,11 +65,11 @@ No filters — these are all colour films; glass filters would alter their colou
 
 | Look | Paper |
 |---|---|
-| ExtraSoft | Kodak Endura Premier |
-| Soft | Kodak Portra Endura |
-| Normal | Fuji Crystal Archive Super Type C |
+| ExtraSoft | Fuji Crystal Archive Super Type C |
+| Soft | Fuji Crystal Archive Pro PDII |
+| Normal | Kodak Portra Endura |
 | Punchy | Fuji Crystal Archive DPII |
-| ExtraPunchy | Fuji Crystal Archive Maxima |
+| ExtraPunchy | Kodak Supra Endura |
 
 Same 5 looks, same paper ladder, for all four films — a film's own native contrast just sets where on that ladder "gentle" vs "punchy" lands (see "Choosing a print paper"). There's no `Hard` look for color, unlike Tri-X's 6-grade ladder — deliberately: the ladder stays inside the range of real, non-clipping paper contrasts rather than extrapolating past what real materials offer.
 
@@ -83,24 +83,27 @@ Neither variant is "better" — they serve different goals. Classic is more fait
 
 ## Choosing a print paper
 
-Every color-film look in this set is a real print paper, not a math knob — the same approach Tri-X already uses with Polymax's grades 0-5, extended to color. The method:
+Every color-film look in this set is a real print paper, not a math knob — the same approach Tri-X already uses with Polymax's grades 0-5, extended to color. `film_paper_filter_data/papers/color/for_negatives/` has 7 legitimate reflective RA-4 papers (Kodak Endura Premier, Portra Endura, Supra Endura; Fuji Crystal Archive Super Type C, Pro PDII, DPII, Maxima). Cinema release-print stocks (Kodak 2383/2393/5381-series, Technicolor V) and duratrans/backlit display materials (Fujiflex, Duraflex Plus) are excluded outright as the wrong medium, regardless of how their contrast might otherwise fit.
 
-1. **Pick real, same-medium candidates.** `film_paper_filter_data/papers/color/for_negatives/` has 7 legitimate reflective RA-4 papers (Kodak Endura Premier, Portra Endura, Supra Endura; Fuji Crystal Archive Super Type C, Pro PDII, DPII, Maxima). Cinema release-print stocks (Kodak 2383/2393/5381-series, Technicolor V) and duratrans/backlit display materials (Fujiflex, Duraflex Plus) are excluded outright as the wrong medium, regardless of how their contrast might otherwise fit.
-2. **Compute each candidate's own gamma** (regression slope over the middle 60% of each layer's exposure range), then the *compounded* system gamma with each film: film γ × internegative γ (≈0.527, fixed — every film here routes through the same internegative) × paper γ.
-3. **Calibrate against a known-good reference.** Tri-X + Polymax grade 2 — unambiguously "normal" B&W printing — computes to system γ ≈ 1.16 by this same method. That's the target zone color "Normal" should land near.
-4. **Pick 5 papers spanning that range with reasonable spacing**, reusing the same 5 papers across every film (their compounded-gamma order is preserved regardless of which film multiplies in front, so one shared ladder works for all four).
+**The ladder is picked by measuring the real cascade, not by estimating one paper at a time.** An earlier version of this table picked papers using each candidate's own regression-slope gamma (least-squares slope over the middle 60% of its own exposure range), multiplied by film γ × internegative γ as a proxy for the compounded result. That proxy turned out not to predict what actually gets rendered: side-by-side comparison of the shipped LUTs found ExtraSoft (Kodak Endura Premier) was in practice the *punchiest* look of the five, and Punchy/ExtraPunchy (Fuji Crystal Archive DPII/Maxima) were barely distinguishable. The proxy also never considered 2 of the 7 real, eligible candidate papers (Fuji Crystal Archive Pro PDII, Kodak Supra Endura) — they were identified as legitimate RA-4 papers early on but never digitized into the shipped ladder.
 
-Measured native film gammas: Velvia 50 ≈1.63, Kodachrome 64 ≈1.84, Fuji Provia 100F ≈1.48, Kodak Ektachrome 100D ≈1.76. Resulting compounded system gamma per look (all four route through the same internegative, γ≈0.527):
+The fix: `tools/measure_paper_punch.py` (committed, read-only) runs *every* one of the 7 real candidate papers through the actual production cascade — `build_print_cascade()`, `_find_anchor`-calibrated exactly like every shipped LUT, not an isolated regression on the paper's own curve — for each of the 4 color films, and reports what that cascade actually renders: real sensitometric gamma (Δdensity/Δlog10 exposure) in the shadow/mid/highlight bands, and the encoded output at the real LUT corners (full-white and full-black neutral input). Run it yourself with `python3 tools/measure_paper_punch.py` any time paper data changes.
+
+The current 5-paper ladder was picked from that measured output: full-range **span** (white-corner minus black-corner encoded output — the closest single number to "how punchy does this actually render," since it captures both contrast and a paper's own highlight headroom in one measurement) ranks the 7 candidates in the *same order on every one of the 4 films*, so one shared ladder still works for all of them:
 
 | Look | Paper | Velvia 50 | Kodachrome 64 | Fuji Provia 100F | Kodak Ektachrome 100D |
 |---|---|---|---|---|---|
-| ExtraSoft | Kodak Endura Premier | 1.54 | 1.74 | 1.40 | 1.67 |
-| Soft | Kodak Portra Endura | 1.62 | 1.82 | 1.47 | 1.74 |
-| Normal | Fuji Crystal Archive Super Type C | 1.76 | 1.99 | 1.60 | 1.90 |
-| Punchy | Fuji Crystal Archive DPII | 1.94 | 2.19 | 1.76 | 2.09 |
-| ExtraPunchy | Fuji Crystal Archive Maxima | 2.11 | 2.38 | 1.91 | 2.27 |
+| ExtraSoft | Fuji Crystal Archive Super Type C | 0.851 | 0.845 | 0.833 | 0.835 |
+| Soft | Fuji Crystal Archive Pro PDII | 0.866 | 0.860 | 0.847 | 0.849 |
+| Normal | Kodak Portra Endura | 0.895 | 0.893 | 0.886 | 0.886 |
+| Punchy | Fuji Crystal Archive DPII | 0.897 | 0.900 | 0.894 | 0.893 |
+| ExtraPunchy | Kodak Supra Endura | 0.919 | 0.919 | 0.916 | 0.914 |
 
-Provia 100F's whole range sits comfortably below where the previous (now-removed) direct-to-reversal-paper Velvia look measured (system γ 1.91). Kodachrome 64 and Ektachrome 100D's ExtraPunchy nudges into the 2.2-2.4 range — still well clear of the Ilfochrome-direct-print clipping zone (2.0-3.0) that was rejected for lacking an internegative stage, precisely because the internegative is what keeps every one of these films printable in the first place — see "What these replicate" above.
+(Span, not gamma — see `tools/measure_paper_punch.py`'s own output for the full shadow/mid/highlight gamma bands per film.) Kodak Endura Premier and Fuji Crystal Archive Maxima both measure well but sit too close to their neighbors on every film to add a usefully distinct rung — the same reason the *previous* ladder left Pro PDII and Supra Endura out — so they're the two left unused now instead.
+
+Normal and Punchy measure close together (span differs by 0.002-0.007) — a real, measured near-tie, not an oversight. They're kept as adjacent rungs anyway because they're the same two papers (Portra Endura, Fuji Crystal Archive DPII) the previous "Soft"/"Punchy" ladder already shipped, side-by-side comparison already confirmed they render as distinguishable in practice, and Normal-below-Punchy is exactly where the real measured data places them.
+
+One real, measured curve-crossover worth flagging, the same kind already documented for Tri-X's Polymax grades 0/1 (`tasks/06-extrasoft-soft-midtone-contrast-inversion.md`) — not a code defect: Pro PDII ("Soft") has *more* local midtone gamma than Portra Endura ("Normal") on every film, even though Pro PDII's overall span is lower. Portra Endura spreads its contrast more gradually across a wider exposure range instead of concentrating it around grey, so Soft/Normal are correctly ordered by overall shadow-to-highlight spread, not by local contrast right around grey — a viewer comparing the two on a subject with detail concentrated near midtone grey may see the "softer" look as locally punchier there.
 
 ## The colour science
 
