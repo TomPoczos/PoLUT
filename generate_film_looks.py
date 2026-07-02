@@ -315,7 +315,8 @@ def _weights(sens, filt=None):
 
 def layer_weights(sens_list):
     """3×3 matrix: per-layer weights mapping Adobe RGB → layer exposure, for
-    any 3-layer color material (Velvia, Portra 400, Kodak Gold 200, Ektar 100)."""
+    any 3-layer color material (Velvia 50, Kodachrome 64, Provia 100F,
+    Ektachrome 100D)."""
     return [_weights(layer) for layer in sens_list]
 
 # =========================================================================
@@ -464,7 +465,7 @@ def build_print_cascade(stages):
 
     (fxs, fys), finc, fst, _ = parsed[-1]
     fdm = min(fys)
-    td = fdm - math.log10(0.18)
+    td = _grey_target_density(fys)
     lhg = _find_anchor(fxs, fys, td, increasing=finc, start=fst)
 
     pls = []
@@ -488,6 +489,14 @@ def build_print_cascade(stages):
         return max(0.0, min(1.0, 10**(-(D-fdm))))
     return xfer
 
+def _grey_target_density(ys):
+    """Density where a curve reproduces 18% reflectance, given its already-
+    parsed density values. Shared by reversal_grey_target() (a documented
+    sanity check, not called from any cascade) and build_print_cascade()'s
+    final-stage grey anchor (the one place this actually feeds a cascade),
+    so the "min(ys) - log10(0.18)" formula exists in exactly one place."""
+    return min(ys) - math.log10(0.18)
+
 def reversal_grey_target(curve):
     """Target density where a reversal-type curve reproduces 18% reflectance
     -- the same universal photographic grey convention the final stage of
@@ -510,9 +519,14 @@ def reversal_grey_target(curve):
     around only for its original purpose: sanity-checking that our own
     grey math lands in the right ballpark against Kodak's published number
     (see the comment above), not for feeding into build_print_cascade().
+
+    Deliberately has no call sites in the cascade-building code -- it exists
+    solely as a documented, on-demand sanity check (run it by hand against
+    a curve when questioning whether the grey math is in the right
+    ballpark), not as dead code left behind by accident.
     """
     _, ys = _sc(curve)
-    return min(ys) - math.log10(0.18)
+    return _grey_target_density(ys)
 
 def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
     """The density span [lo, hi] covered by the straight-line (constant-
@@ -551,7 +565,7 @@ def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
     return min(seg_ys), max(seg_ys)
 
 def density_midpoint(curve):
-    """Exposure at the midpoint of the density range spanned by a curve's
+    """Density at the midpoint of the density range spanned by a curve's
     own straight-line portion -- real measured data (the material's own
     actual response), used as a stage's calibration reference point
     specifically where no better *published calibration* number exists for
@@ -681,27 +695,26 @@ KODACHROME64_REF_D = [density_midpoint(c) for c in KODACHROME64_CURVES]
 PROVIA100F_REF_D = [density_midpoint(c) for c in PROVIA100F_CURVES]
 EKTACHROME100D_REF_D = [density_midpoint(c) for c in EKTACHROME100D_CURVES]
 
+def _reversal_stage_fn(film_curves, film_ref_d):
+    """Builds a COLOR_FILMS stage-list function for a 3-layer reversal film:
+    its own curve -> the internegative -> whichever paper is passed in at
+    call time. The only axis of variation across films is which curve list
+    and ref_d list get closed over here; start indices are always auto-
+    detected per curve/layer via _detect_lead_noise_start()."""
+    return lambda li, paper: [
+        (film_curves[li], False, _detect_lead_noise_start(film_curves[li], False), film_ref_d[li]),
+        (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
+        (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
+
 COLOR_FILMS = [
     ("velvia", "Velvia50", "Velvia 50", VELVIA_SENS,
-     lambda li, paper: [
-         (VELVIA_CURVES[li], False, _detect_lead_noise_start(VELVIA_CURVES[li], False), VELVIA_REF_D[li]),
-         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
+     _reversal_stage_fn(VELVIA_CURVES, VELVIA_REF_D)),
     ("kodachrome64", "Kodachrome64", "Kodachrome 64", KODACHROME64_SENS,
-     lambda li, paper: [
-         (KODACHROME64_CURVES[li], False, _detect_lead_noise_start(KODACHROME64_CURVES[li], False), KODACHROME64_REF_D[li]),
-         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
+     _reversal_stage_fn(KODACHROME64_CURVES, KODACHROME64_REF_D)),
     ("provia100f", "Provia100F", "Fuji Provia 100F", PROVIA100F_SENS,
-     lambda li, paper: [
-         (PROVIA100F_CURVES[li], False, _detect_lead_noise_start(PROVIA100F_CURVES[li], False), PROVIA100F_REF_D[li]),
-         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
+     _reversal_stage_fn(PROVIA100F_CURVES, PROVIA100F_REF_D)),
     ("ektachrome100d", "Ektachrome100D", "Kodak Ektachrome 100D", EKTACHROME100D_SENS,
-     lambda li, paper: [
-         (EKTACHROME100D_CURVES[li], False, _detect_lead_noise_start(EKTACHROME100D_CURVES[li], False), EKTACHROME100D_REF_D[li]),
-         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
+     _reversal_stage_fn(EKTACHROME100D_CURVES, EKTACHROME100D_REF_D)),
 ]
 COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 
@@ -734,7 +747,7 @@ def main():
                     total+=1
                     print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
-    # --- Color films: Velvia 50, Portra 400, Kodak Gold 200, Ektar 100 ---
+    # --- Color films: Velvia 50, Kodachrome 64, Provia 100F, Ektachrome 100D ---
     # Every look is a real paper choice (PAPER_LADDER), no synthetic gamma.
     for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
         if key not in only: continue
