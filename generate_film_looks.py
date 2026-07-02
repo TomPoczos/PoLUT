@@ -58,18 +58,47 @@ def aenc(c): return max(0.0,min(1.0,c))**(1.0/_AG)
 # =========================================================================
 _MA_REC2020 = [[1.7166512,-0.3556708,-0.2533663],[-0.6666844,1.6164812,0.0157685],[0.0176399,-0.0427706,0.9421031]]
 _MA_INV_REC2020 = [[0.6369580,0.1446169,0.1688810],[0.2627002,0.6779981,0.0593017],[0.0000000,0.0280727,1.0609851]]
-# SMPTE ST 2084 constants (dEOTF/EOTF), operating on the same [0,1]-normalized
-# domain as adec()/aenc() -- 1.0 is simply this encoding's peak, not literally
-# 10000 cd/m^2, consistent with how adec()/aenc() treat 1.0 as Adobe RGB's peak.
+# SMPTE ST 2084 (PQ) constants. Unlike a gamma curve, PQ's perceptual spacing
+# is hard-wired to an absolute 10000 cd/m^2 reference -- that's the whole
+# point of it being a wide-range encoding. Treating the raw formula's [0,1]
+# domain as "this encoding's peak" the same way adec()/aenc() treat Adobe
+# RGB gamma's [0,1] domain (an earlier version of this code did exactly
+# that) is wrong for PQ specifically: relabeling an endpoint doesn't rescale
+# a curve whose *shape* assumes an absolute reference. Concretely, that
+# earlier version put middle grey (0.18) at code 0.816 -- almost all the
+# LUT's grid resolution above black went to encoding sub-grey shadow detail,
+# while the entire visible grey-to-highlight range was crushed into the top
+# ~18% of the code axis. Verified against a real render: this produced
+# exactly the crushed, over-contrasty, oversaturated look that gave it away.
+#
+# Fix: apply the real ST.2084 formula on a domain rescaled so that linear
+# value 1.0 (this pipeline's usual GREY=0.18-relative peak convention, the
+# same role adec()/aenc()'s 1.0 plays) represents a chosen real reference
+# white in absolute nits, not literally 10000 cd/m^2. _PQ_REF_NITS=203 is
+# ITU-R BT.2408-4 Table 2's published reference level for 100%-reflecting
+# diffuse white / graphics in HDR PQ mastering -- real broadcast data, and
+# the closest published quantity to what GREY means here (a diffuse
+# reflectance anchor, not a display's nominal peak). At this scale grey
+# lands at code ~0.41 (close to Adobe RGB's 0.459, so the two colour spaces
+# stay perceptually comparable) with ~8 stops of highlight headroom above it
+# before code 1.0 -- vs. Adobe RGB gamma's hard clip at ~2.5 stops, which is
+# the entire reason --colorspace pq2020 exists (see README "Highlight
+# clipping"). Exposure values above 1.0 that this produces are safe: every
+# transfer-curve evaluation downstream goes through _il(), which clamps to
+# the digitized curve's own endpoint rather than extrapolating, so bright
+# highlights simply clip to the film's natural shoulder density.
 _PQ_M1,_PQ_M2 = 0.1593017578125,78.84375
 _PQ_C1,_PQ_C2,_PQ_C3 = 0.8359375,18.8515625,18.6875
+_PQ_REF_NITS = 203.0
+_PQ_PEAK_FRAC = _PQ_REF_NITS/10000.0
 def pqdec(v):
     v=max(0.0,min(1.0,v))
     vp=v**(1.0/_PQ_M2)
     num=max(vp-_PQ_C1,0.0); den=_PQ_C2-_PQ_C3*vp
-    return (num/den)**(1.0/_PQ_M1) if den>0 else 0.0
+    l10k=(num/den)**(1.0/_PQ_M1) if den>0 else 0.0
+    return l10k/_PQ_PEAK_FRAC
 def pqenc(c):
-    c=max(0.0,min(1.0,c))
+    c=max(0.0,min(1.0,c))*_PQ_PEAK_FRAC
     cp=c**_PQ_M1
     return ((_PQ_C1+_PQ_C2*cp)/(1.0+_PQ_C3*cp))**_PQ_M2
 
