@@ -722,10 +722,10 @@ def main():
         outdir=os.path.join(args.output,key)
         os.makedirs(outdir,exist_ok=True)
         print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {len(COLOR_LOOKS)*2} LUTs")
-        for variant_label,use_hk in [("Classic",False),("Modern",True)]:
-            for look in COLOR_LOOKS:
-                paper=PAPER_LADDER[look]
-                xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
+        for look in COLOR_LOOKS:
+            paper=PAPER_LADDER[look]
+            xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
+            for variant_label,use_hk in [("Classic",False),("Modern",True)]:
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
                 write_color_lut(os.path.join(outdir,fname),
