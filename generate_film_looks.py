@@ -27,6 +27,7 @@ Usage:
   python generate_film_looks.py --size 33                  # faster, smaller
   python generate_film_looks.py --only trix                 # just Tri-X
   python generate_film_looks.py --only velvia kodachrome64   # just these two
+  python generate_film_looks.py --colorspace pq2020          # Rec.2020 + PQ instead of Adobe RGB
   python generate_film_looks.py --help
 """
 
@@ -41,15 +42,55 @@ D65 = {400:82.75,410:91.49,420:93.43,430:86.68,440:104.86,450:117.01,460:117.81,
 # =========================================================================
 # Adobe RGB (1998)
 # =========================================================================
-_MA = [[2.04158790,-0.56500697,-0.34473135],[-0.96924364,1.87596750,0.04155506],[0.01344428,-0.11836239,1.01517499]]
-_MA_INV = [[0.57667,0.18556,0.18823],[0.29734,0.62736,0.07529],[0.02703,0.07069,0.99134]]
-_SSF = {}
-for _wl in range(400,710,10):
-    x,y,z = CIE[_wl]
-    _SSF[_wl] = tuple(max(sum(_MA[r][c]*v for c,v in enumerate((x,y,z))),0) for r in range(3))
+_MA_ADOBE = [[2.04158790,-0.56500697,-0.34473135],[-0.96924364,1.87596750,0.04155506],[0.01344428,-0.11836239,1.01517499]]
+_MA_INV_ADOBE = [[0.57667,0.18556,0.18823],[0.29734,0.62736,0.07529],[0.02703,0.07069,0.99134]]
 _AG = 2.19921875
 def adec(v): return max(0.0,v)**_AG
 def aenc(c): return max(0.0,min(1.0,c))**(1.0/_AG)
+
+# =========================================================================
+# Rec.2020 (D65) + SMPTE ST 2084 (PQ) -- the other LUT-module application
+# colour space this tool can target (see main()'s --colorspace). Rec.2020's
+# primaries are wider than Adobe RGB's, and PQ is a genuine wide-range
+# perceptual encoding (unlike a fixed gamma, it doesn't clip highlights at a
+# fixed stops-above-grey point the way Adobe RGB's gamma does -- see README
+# "Highlight clipping").
+# =========================================================================
+_MA_REC2020 = [[1.7166512,-0.3556708,-0.2533663],[-0.6666844,1.6164812,0.0157685],[0.0176399,-0.0427706,0.9421031]]
+_MA_INV_REC2020 = [[0.6369580,0.1446169,0.1688810],[0.2627002,0.6779981,0.0593017],[0.0000000,0.0280727,1.0609851]]
+# SMPTE ST 2084 constants (dEOTF/EOTF), operating on the same [0,1]-normalized
+# domain as adec()/aenc() -- 1.0 is simply this encoding's peak, not literally
+# 10000 cd/m^2, consistent with how adec()/aenc() treat 1.0 as Adobe RGB's peak.
+_PQ_M1,_PQ_M2 = 0.1593017578125,78.84375
+_PQ_C1,_PQ_C2,_PQ_C3 = 0.8359375,18.8515625,18.6875
+def pqdec(v):
+    v=max(0.0,min(1.0,v))
+    vp=v**(1.0/_PQ_M2)
+    num=max(vp-_PQ_C1,0.0); den=_PQ_C2-_PQ_C3*vp
+    return (num/den)**(1.0/_PQ_M1) if den>0 else 0.0
+def pqenc(c):
+    c=max(0.0,min(1.0,c))
+    cp=c**_PQ_M1
+    return ((_PQ_C1+_PQ_C2*cp)/(1.0+_PQ_C3*cp))**_PQ_M2
+
+def _make_ssf(xyz2rgb):
+    ssf={}
+    for wl in range(400,710,10):
+        x,y,z = CIE[wl]
+        ssf[wl] = tuple(max(sum(xyz2rgb[r][c]*v for c,v in enumerate((x,y,z))),0) for r in range(3))
+    return ssf
+_SSF_ADOBE = _make_ssf(_MA_ADOBE)
+_SSF_REC2020 = _make_ssf(_MA_REC2020)
+
+# name -> (display label, XYZ->RGB table for _weights(), RGB->XYZ matrix for
+# hk_mul(), decode E-encoded->linear, encode linear->E-encoded). Selected once
+# in main() via --colorspace and threaded through the pipeline; default stays
+# Adobe RGB so the committed .cube files are unaffected unless --colorspace
+# pq2020 is passed explicitly.
+COLORSPACES = {
+    "adobergb": dict(label="Adobe RGB",   ssf=_SSF_ADOBE,   rgb2xyz=_MA_INV_ADOBE,   dec=adec, enc=aenc),
+    "pq2020":   dict(label="PQ Rec.2020", ssf=_SSF_REC2020, rgb2xyz=_MA_INV_REC2020, dec=pqdec, enc=pqenc),
+}
 
 # =========================================================================
 # CIELCh + Helmholtz-Kohlrausch (Fairchild & Pirrotta 1991)
@@ -64,18 +105,22 @@ def _lfi(t): return t**3 if t>6/29 else 3*(6/29)**2*(t-4/29)
 # Table I): L* in [~30,~87], C* in [~6,~87]. The largest luminance-matching ratio
 # implied by any of their own measured (not just modelled) data points is ~2.7x
 # (sample 5PB3/10: L*=30.42, C*=44.05 -> observed lightness 48.6). Wide-gamut scene
-# colours (this tool decodes Adobe RGB) routinely exceed that C* range and produce
-# unbounded multipliers when fed through the formula's linear C* term. 3.0x gives
+# colours (this tool decodes Adobe RGB by default, or wider-gamut Rec.2020 via
+# --colorspace pq2020) routinely exceed that C* range and produce unbounded
+# multipliers when fed through the formula's linear C* term. 3.0x gives
 # headroom above the largest paper-supported ratio while cutting off extrapolation
 # far beyond it. See README "Helmholtz-Kohlrausch correction" for the full derivation.
+# Derived against Adobe RGB's gamut specifically -- not re-derived for Rec.2020's
+# wider primaries, so it's a conservative (not necessarily optimal) cap there too.
 HK_MAX_MUL = 3.0
 
-def hk_mul(R,G,B):
-    """HK exposure multiplier from linear Adobe RGB input, capped at HK_MAX_MUL."""
+def hk_mul(R,G,B,rgb2xyz=_MA_INV_ADOBE):
+    """HK exposure multiplier from linear RGB input (primaries given by
+    rgb2xyz, Adobe RGB by default), capped at HK_MAX_MUL."""
     if R<1e-6 and G<1e-6 and B<1e-6: return 1.0
-    X=_MA_INV[0][0]*R+_MA_INV[0][1]*G+_MA_INV[0][2]*B
-    Y=_MA_INV[1][0]*R+_MA_INV[1][1]*G+_MA_INV[1][2]*B
-    Z=_MA_INV[2][0]*R+_MA_INV[2][1]*G+_MA_INV[2][2]*B
+    X=rgb2xyz[0][0]*R+rgb2xyz[0][1]*G+rgb2xyz[0][2]*B
+    Y=rgb2xyz[1][0]*R+rgb2xyz[1][1]*G+rgb2xyz[1][2]*B
+    Z=rgb2xyz[2][0]*R+rgb2xyz[2][1]*G+rgb2xyz[2][2]*B
     if Y<1e-6: return 1.0
     fy=_lf(Y/_Yn); L=116*fy-16
     a=500*(_lf(X/_Xn)-fy); b=200*(fy-_lf(Z/_Zn))
@@ -333,8 +378,10 @@ GREY = 0.18
 # =========================================================================
 # Weight computation
 # =========================================================================
-def _weights(sens, filt=None):
-    """Compute colour->grey weights from spectral sensitivity + optional filter."""
+def _weights(sens, filt=None, ssf=_SSF_ADOBE):
+    """Compute colour->grey weights from spectral sensitivity + optional filter.
+    `ssf` is the CIE->RGB primary table for whichever colour space is being
+    targeted (see COLORSPACES); defaults to Adobe RGB."""
     sk=sorted(sens); sv=[sens[k] for k in sk]
     ft=None
     if filt:
@@ -343,16 +390,16 @@ def _weights(sens, filt=None):
     for wl in range(400,710,10):
         s=_il10(sk,sv,wl)
         if ft: s*=_il(ft[0],ft[1],wl)/100.0
-        d=D65[wl]; r,g,b=_SSF[wl]
+        d=D65[wl]; r,g,b=ssf[wl]
         wr+=s*d*r; wg+=s*d*g; wb+=s*d*b
     tot=wr+wg+wb
     return (wr/tot,wg/tot,wb/tot) if tot>0 else (1/3,1/3,1/3)
 
-def layer_weights(sens_list):
-    """3×3 matrix: per-layer weights mapping Adobe RGB → layer exposure, for
+def layer_weights(sens_list, ssf=_SSF_ADOBE):
+    """3×3 matrix: per-layer weights mapping scene RGB → layer exposure, for
     any 3-layer color material (Velvia 50, Kodachrome 64, Provia 100F,
     Ektachrome 100D)."""
-    return [_weights(layer) for layer in sens_list]
+    return [_weights(layer, ssf=ssf) for layer in sens_list]
 
 # =========================================================================
 # Cascade builders
@@ -643,45 +690,51 @@ def build_trix_cascade(paper):
 # =========================================================================
 # LUT writers
 # =========================================================================
-def write_bw_lut(path, title, weights, xfer, size, use_hk):
-    """B&W LUT: geometric mean + optional HK → negative×print cascade."""
+def write_bw_lut(path, title, weights, xfer, size, use_hk, cs=COLORSPACES["adobergb"]):
+    """B&W LUT: geometric mean + optional HK → negative×print cascade.
+    `cs` picks the LUT module application colour space (see COLORSPACES);
+    defaults to Adobe RGB."""
     wr,wg,wb=weights; n=size-1
+    dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
-        f.write(f'# Adobe RGB in/out. REPLACES AgX. R={wr:.4f} G={wg:.4f} B={wb:.4f}\n')
+        f.write(f'# {label} in/out. REPLACES AgX. R={wr:.4f} G={wg:.4f} B={wb:.4f}\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
         for bi in range(size):
             for gi in range(size):
                 for ri in range(size):
-                    R,G,B=adec(ri/n),adec(gi/n),adec(bi/n)
+                    R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
                     E=1.0
                     if wr>0: E*=R**wr if R>0 else 0.0
                     if E>0 and wg>0: E*=G**wg if G>0 else 0.0
                     if E>0 and wb>0: E*=B**wb if B>0 else 0.0
-                    if use_hk and E>1e-9: E*=hk_mul(R,G,B)
-                    v=aenc(xfer(E))
+                    if use_hk and E>1e-9: E*=hk_mul(R,G,B,rgb2xyz)
+                    v=enc(xfer(E))
                     f.write(f'{v:.6f} {v:.6f} {v:.6f}\n')
 
-def write_color_lut(path, title, lw, xfers, size, use_hk):
-    """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out."""
+def write_color_lut(path, title, lw, xfers, size, use_hk, cs=COLORSPACES["adobergb"]):
+    """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out.
+    `cs` picks the LUT module application colour space (see COLORSPACES);
+    defaults to Adobe RGB."""
     n=size-1
+    dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
-        f.write(f'# Adobe RGB in/out. REPLACES AgX. {title}.\n')
+        f.write(f'# {label} in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
         for bi in range(size):
             for gi in range(size):
                 for ri in range(size):
-                    R,G,B=adec(ri/n),adec(gi/n),adec(bi/n)
+                    R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
                     # Per-layer exposure (arithmetic, not geometric — each layer sees its own band)
-                    hk=hk_mul(R,G,B) if use_hk else 1.0
+                    hk=hk_mul(R,G,B,rgb2xyz) if use_hk else 1.0
                     out=[]
                     for li in range(3):
                         wr,wg,wb=lw[li]
                         E=wr*R+wg*G+wb*B
                         if E>1e-9: E*=hk
                         out.append(xfers[li](E))
-                    f.write(f'{aenc(out[0]):.6f} {aenc(out[1]):.6f} {aenc(out[2]):.6f}\n')
+                    f.write(f'{enc(out[0]):.6f} {enc(out[1]):.6f} {enc(out[2]):.6f}\n')
 
 # =========================================================================
 # Main
@@ -759,26 +812,29 @@ def main():
     p.add_argument('--size',type=int,default=65,help='LUT grid N (N^3). Default 65.')
     p.add_argument('--output',default=here)
     p.add_argument('--only',nargs='+',choices=['trix']+COLOR_FILM_KEYS,help='Generate only these film(s). Default: all.')
+    p.add_argument('--colorspace',choices=list(COLORSPACES),default='adobergb',
+                    help="LUT module application color space: 'adobergb' (default) or 'pq2020' (Rec.2020 primaries + SMPTE ST 2084 PQ).")
     args=p.parse_args()
     if not 9<=args.size<=129: p.error("--size 9..129")
     only=set(args.only) if args.only else {'trix',*COLOR_FILM_KEYS}
+    cs=COLORSPACES[args.colorspace]
 
     t0=time.time(); total=0
 
     # --- Tri-X ---
     if 'trix' in only:
-        trix_weights={fn:_weights(TRIX_SENS,FILTERS.get(fn)) for fn in FILTER_ORDER}
+        trix_weights={fn:_weights(TRIX_SENS,FILTERS.get(fn),ssf=cs["ssf"]) for fn in FILTER_ORDER}
         for variant,use_hk in [("trix_classic",False),("trix_modern",True)]:
             outdir=os.path.join(args.output,variant)
             os.makedirs(outdir,exist_ok=True)
-            print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {len(LOOKS)*len(FILTER_ORDER)} LUTs")
+            print(f"\n{'='*60}\n{variant} ({'+ HK' if use_hk else 'no HK'})  |  {args.size}^3  |  {cs['label']}  |  {len(LOOKS)*len(FILTER_ORDER)} LUTs")
             for look,grade in LOOKS:
                 xfer=build_trix_cascade(POLY[grade])
                 for fn in FILTER_ORDER:
                     fname=f"TriX_{fn}_{look}.cube"
                     t1=time.time()
                     write_bw_lut(os.path.join(outdir,fname),
-                                 f"Tri-X {fn} {look}",trix_weights[fn],xfer,args.size,use_hk)
+                                 f"Tri-X {fn} {look}",trix_weights[fn],xfer,args.size,use_hk,cs=cs)
                     total+=1
                     print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
@@ -786,10 +842,10 @@ def main():
     # Every look is a real paper choice (PAPER_LADDER), no synthetic gamma.
     for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
         if key not in only: continue
-        lw=layer_weights(sens)
+        lw=layer_weights(sens,ssf=cs["ssf"])
         outdir=os.path.join(args.output,key)
         os.makedirs(outdir,exist_ok=True)
-        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {len(COLOR_LOOKS)*2} LUTs")
+        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {len(COLOR_LOOKS)*2} LUTs")
         for look in COLOR_LOOKS:
             paper=PAPER_LADDER[look]
             xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
@@ -797,7 +853,7 @@ def main():
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
                 write_color_lut(os.path.join(outdir,fname),
-                                f"{dispname} {variant_label} {look}",lw,xfers,args.size,use_hk)
+                                f"{dispname} {variant_label} {look}",lw,xfers,args.size,use_hk,cs=cs)
                 total+=1
                 print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 

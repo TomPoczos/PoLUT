@@ -20,7 +20,7 @@ Each LUT encodes a complete photographic reproduction chain:
 ## Quick start — darktable setup
 
 1. Turn AgX / filmic / sigmoid **OFF**.
-2. Add a **LUT 3D** module instance. Set application color space to **Adobe RGB**.
+2. Add a **LUT 3D** module instance. Set application color space to **Adobe RGB** (the default `.cube` files) — or to **PQ Rec.2020**, if you generated the LUTs with `--colorspace pq2020` (see "Colour space options" below).
 3. Place it where the tone mapper would normally sit (end of the scene-referred section of the pipeline, after exposure, colour balance, etc).
 4. Load one .cube file.
 5. Use the **exposure** module to position middle grey. The LUT supplies the tonal *shape*; exposure decides where your scene sits on it. If the image looks too dark or too bright, that's an exposure placement issue — nudge it until a known mid-grey reads as mid-grey.
@@ -147,7 +147,7 @@ Five additional perceptual phenomena were evaluated for inclusion in the "modern
 
 ## Honest limitations
 
-**Highlight clipping**: Adobe RGB encoding clips input at approximately middle-grey + 2.5 stops. This is a fundamental limitation of the .cube LUT format — no wide-range perceptual encoding (PQ, log) is available in darktable's lut3d module. The print shoulder (Tri-X) and reversal shoulder (color films) already roll off highlights, so for most pictorial photography the loss is small.
+**Highlight clipping (Adobe RGB only)**: the default `adobergb` encoding clips input at approximately middle-grey + 2.5 stops, a consequence of its fixed gamma curve. The `pq2020` colour space (see "Colour space options") uses PQ, a genuine wide-range perceptual encoding, and doesn't share this limitation — use it if darktable's lut3d module offers it and you need the extra highlight headroom. Either way, the print shoulder (Tri-X) and reversal shoulder (color films) already roll off highlights, so for most pictorial photography the loss is small.
 
 **Every color-film look ladder is now real material data, not a synthetic contrast curve** — Velvia's grades used to be a parametric power-curve adjustment (no real multi-grade print data existed), and the one real-paper Velvia look that did exist (direct printing onto Kodak Ektachrome Radiance III) was structurally very contrasty, because printing a reversal film directly onto *any* reversal print paper compounds two already-high-contrast stages (confirmed against real Cibachrome/Ilfochrome and R-3 process accounts, not just this dataset). The fix was architectural, not a better parameter: real darkroom labs never printed slides directly either, for the same reason — they duplicated the slide onto an internegative first, which is a genuinely low-contrast material (measured γ≈0.527, digitized from EASTMAN Color Internegative II Film 5272/7272's real datasheet — see "Choosing a print paper"), then printed *that* like an ordinary negative. Two real print-paper candidates were tried and rejected for the old direct-print approach along the way: Ilfochrome Micrographic M/P (duplicating/microfilm stock, not pictorial paper, and its own gamma compounds with a reversal film's into an unusably contrasty, clipping result) and Kodak Dye Transfer (flagged by its own source library as "very experimental and unreliable," and its "for Slides" variant turned out to be a renamed copy of the unfinished Kodachrome curve, not independent data) — neither was fabricated data, both were real candidates that didn't hold up.
 
@@ -157,15 +157,19 @@ Five additional perceptual phenomena were evaluated for inclusion in the "modern
 
 **Chromatic aberration interaction**: strong contrast filters (Red25, Blue47) amplify edge colour artifacts from darktable's chromatic aberration correction module. This is because the filter maps near-invisible colour shifts at edges into large luminance differences. Disable automatic CA correction when using strong filters, or use it sparingly.
 
-**Spectral-to-RGB approximation**: converting a film's spectral sensitivity curve into three RGB weights assumes Adobe RGB primary spectra. The weight magnitudes are approximate; the rendering character is robust and matches documented film behaviour.
+**Spectral-to-RGB approximation**: converting a film's spectral sensitivity curve into three RGB weights assumes the selected colour space's primary spectra (Adobe RGB by default, or Rec.2020 with `--colorspace pq2020`). The weight magnitudes are approximate; the rendering character is robust and matches documented film behaviour.
 
 **Two B&W stocks only**: Tri-X 400 and Double-X 5222 are the only B&W negatives with real digitized data available (from JanLohse/spectral_film_lut). The famous rest of the B&W roster — HP5, FP4, T-Max, Acros, Delta — is not included because the data does not exist in digitized form and we did not fabricate it.
 
 **Iconic reversal stocks left out on purpose**: Kodak Aerochrome III (false-color infrared — a distinct creative effect, not "what a normal photo looked like," and its own native gamma is steep enough to compound close to the clipping zone even through the internegative) and Fuji FP-100C / Instax color (integral instant print materials — the shot is already a print the moment it develops; there's no real historical practice of duplicating an instant print onto an internegative, so the whole cascade this project builds wouldn't correspond to anything real for them).
 
-## Why Adobe RGB
+## Colour space options
 
-A .cube LUT needs gamma-encoded input so the grid distributes its sample points where shadows and midtones need precision. Among the encodings darktable's lut3d module offers, Adobe RGB has the widest colour gamut of the gamma options. This means saturated scene colours survive into the spectral weighting rather than being gamut-clipped before the film "sees" them. The gamma precision is equivalent to sRGB; the wider primaries are the deciding advantage.
+`--colorspace` picks which LUT-module application colour space the generated `.cube` files target. It has to match whatever you set in darktable's lut3d module (step 2 of "Quick start"), because it changes both the input/output transfer curve baked into the LUT *and* the RGB primaries used to compute the film's spectral weights (`R=`/`G=`/`B=` in each file's header comment).
+
+**`adobergb` (default)**: A .cube LUT needs gamma-encoded input so the grid distributes its sample points where shadows and midtones need precision. Among the gamma-based encodings darktable's lut3d module offers, Adobe RGB has the widest colour gamut. This means saturated scene colours survive into the spectral weighting rather than being gamut-clipped before the film "sees" them. The gamma precision is equivalent to sRGB; the wider primaries are the deciding advantage. Its fixed 2.2-ish gamma is also what clips highlights at roughly middle-grey + 2.5 stops — see "Highlight clipping" below.
+
+**`pq2020`**: Rec.2020 primaries (wider still than Adobe RGB) encoded with SMPTE ST 2084 (PQ) instead of a fixed gamma. PQ is a genuine wide-range perceptual encoding rather than a fixed-exponent curve, so it doesn't clip highlights at a fixed stops-above-grey point the way Adobe RGB's gamma does. `hk_mul()`'s `HK_MAX_MUL = 3.0` cap (see "Helmholtz-Kohlrausch correction" below) was derived against Adobe RGB's gamut specifically and hasn't been re-derived for Rec.2020's wider primaries — it still applies as a conservative ceiling, just not necessarily an optimal one, when this option is selected.
 
 ## Data provenance
 
@@ -186,13 +190,16 @@ Film and paper curves and spectral sensitivities not otherwise noted above were 
 ## Generating
 
 ```
-python generate_film_looks.py                                # 65^3, all 112 LUTs
+python generate_film_looks.py                                # 65^3, all 112 LUTs, Adobe RGB
 python generate_film_looks.py --size 33                       # faster, smaller files
 python generate_film_looks.py --only trix                      # Tri-X only (72 LUTs)
 python generate_film_looks.py --only velvia kodachrome64        # just these two (20 LUTs)
+python generate_film_looks.py --colorspace pq2020                # Rec.2020 + PQ instead of Adobe RGB
 ```
 
 `--only` accepts any subset of `trix velvia kodachrome64 provia100f ektachrome100d`. Omit it for everything.
+
+`--colorspace` accepts `adobergb` (default) or `pq2020` — see "Colour space options" below. It changes what the LUT expects as input/output, so match it to whatever you set as the lut3d module's application color space.
 
 No dependencies beyond Python 3 standard library.
 

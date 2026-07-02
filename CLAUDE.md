@@ -13,13 +13,16 @@ python generate_film_looks.py                            # regenerate all 112 LU
 python generate_film_looks.py --size 33                   # smaller/faster grid for iteration
 python generate_film_looks.py --only trix                  # regenerate only trix_classic/ + trix_modern/
 python generate_film_looks.py --only velvia kodachrome64    # regenerate only velvia/ + kodachrome64/
+python generate_film_looks.py --colorspace pq2020            # generate against Rec.2020 + PQ instead of Adobe RGB
 ```
 
 `--only` takes `nargs='+'` over `trix velvia kodachrome64 provia100f ektachrome100d` — any subset, not just one.
 
+`--colorspace` takes `adobergb` (default) or `pq2020`; see "LUT module application color space" below. The committed `.cube` files are all `adobergb` — regenerating with `--colorspace pq2020` produces a parallel set that is not (yet) committed, so don't run it into the tracked output folders without deliberately intending to replace the committed baseline.
+
 No dependencies beyond the Python 3 standard library (`argparse`, `math`, `os`, `time`). No build step, no test suite, no linter configured — the only "check" is running the generator and confirming it completes without error and diffing/regenerating the output `.cube` files.
 
-The generated `.cube` files under `trix_classic/`, `trix_modern/`, `velvia/`, `kodachrome64/`, `provia100f/`, `ektachrome100d/` are committed to git as build artifacts. **After changing any film data or algorithm in `generate_film_looks.py`, regenerate all 112 files and commit them alongside the script change** — don't let the script and the checked-in LUTs drift apart.
+The generated `.cube` files under `trix_classic/`, `trix_modern/`, `velvia/`, `kodachrome64/`, `provia100f/`, `ektachrome100d/` are committed to git as build artifacts, all generated at the default `--colorspace adobergb`. **After changing any film data or algorithm in `generate_film_looks.py`, regenerate all 112 files at the default colorspace and commit them alongside the script change** — don't let the script and the checked-in LUTs drift apart.
 
 ## Architecture
 
