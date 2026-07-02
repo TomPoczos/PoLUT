@@ -213,19 +213,23 @@ CA_MAXIMA = [  # Fuji Crystal Archive Maxima
 {-0.0476:0.065987,0.0396:0.070342,0.1665:0.075678,0.3003:0.090813,0.4708:0.14166,0.5669:0.20547,0.6551:0.30282,0.7572:0.47595,0.8454:0.68578,0.9197:0.89126,0.999:1.1617,1.0585:1.4051,1.1318:1.6766,1.2071:1.9514,1.2587:2.1277,1.3518:2.3288,1.3984:2.4089,1.4579:2.4835,1.5282:2.5528,1.6274:2.6068,1.7393:2.6523,1.8484:2.6804,1.9574:2.6934,2.0347:2.6977},
 ]
 
-# name -> (paper curve list, _find_anchor start index, used as the final
-# stage's grey-anchor start). All 0 except Endura Premier, whose raw curve
-# has ~10 leading samples of digitization noise on its Dmin plateau (density
-# oscillating ~0.001-0.003, not a real reversal) -- same handling Ektachrome
-# Radiance III used to need. Verified the real grey-anchor crossing (~0.836
-# density) lands well clear of it regardless of which film this paper is
-# paired with, since it depends only on the paper's own curve.
+# name -> paper curve list (3 layers), used as the final stage in every
+# color film's cascade. Each layer's own _find_anchor start index (needed
+# only by Endura Premier, whose raw curve has ~10 leading samples of
+# digitization noise on its Dmin plateau -- density oscillating
+# ~0.001-0.003, not a real reversal, same handling Ektachrome Radiance III
+# used to need) is detected automatically per layer by
+# _detect_lead_noise_start() rather than hand-derived here -- see that
+# function's docstring. Verified the real grey-anchor crossing (~0.836
+# density) lands well clear of Endura Premier's noisy samples regardless of
+# which film this paper is paired with, since it depends only on the
+# paper's own curve.
 PAPER_LADDER = {
-"ExtraSoft":   (ENDURA_PREMIER,   10),
-"Soft":        (PORTRA_ENDURA,     0),
-"Normal":      (CA_SUPER_TYPE_C,   0),
-"Punchy":      (CA_DPII,           0),
-"ExtraPunchy": (CA_MAXIMA,         0),
+"ExtraSoft":   ENDURA_PREMIER,
+"Soft":        PORTRA_ENDURA,
+"Normal":      CA_SUPER_TYPE_C,
+"Punchy":      CA_DPII,
+"ExtraPunchy": CA_MAXIMA,
 }
 COLOR_LOOKS = ["ExtraSoft", "Soft", "Normal", "Punchy", "ExtraPunchy"]
 
@@ -363,6 +367,37 @@ def _find_anchor(xs, ys, td, increasing, start=0):
                 t=(td-ys[i])/(ys[i+1]-ys[i]); return xs[i]*(1-t)+xs[i+1]*t
     raise ValueError("_find_anchor: target density not found in curve range")
 
+def _detect_lead_noise_start(curve, increasing, max_lead=15):
+    """Auto-detect how many leading samples of a digitized curve are
+    Dmin/Dmax-plateau digitization noise rather than the real monotonic
+    climb/decline, so `_find_anchor()` knows where to start scanning.
+
+    Restores the auto-skip the old (deleted) build_velvia_print_cascade()
+    used to do (`lead=pys[:5]; start=lead.index(max(lead))`) as a general
+    per-curve function, instead of requiring a hand-derived magic number at
+    every PAPER_LADDER/COLOR_FILMS call site. Real digitization noise on a
+    flat plateau shows up as a direction violation (a decrease where the
+    curve should be rising, or vice versa) confined to the first handful of
+    samples; genuine non-monotonicity elsewhere in a curve (Polymax grades
+    0/1 dipping near Dmax, a reversal dye layer solarizing at the extreme-
+    overexposure tail) lives far from index 0 and must stay visible to
+    _find_anchor()'s own monotonicity check, so this only scans a bounded
+    leading window (`max_lead`, generously larger than any noise run
+    actually seen in this file's data) rather than the whole curve. Returns
+    the index right after the last violation found in that window -- 0 if
+    the leading window is already clean, which every currently-shipped
+    curve except Endura Premier (all 3 layers) and Provia 100F (layers 0
+    and 2) is.
+    """
+    xs, ys = _sc(curve)
+    n = min(max_lead, len(ys) - 1)
+    last_bad = -1
+    for i in range(n):
+        bad = (ys[i] > ys[i+1]) if increasing else (ys[i] < ys[i+1])
+        if bad:
+            last_bad = i
+    return last_bad + 1
+
 def build_print_cascade(stages):
     """N-stage print cascade: E -> reflectance.
 
@@ -377,7 +412,9 @@ def build_print_cascade(stages):
     before the real crossing (e.g. Kodak Endura Premier as a final stage,
     or Fuji Provia 100F's own reversal curve as a non-final one -- both
     have a tiny Dmax-plateau wobble in their first sample or two; 0 for
-    every other curve in this file, which are clean). `ref_d` is the target
+    every other curve in this file, which are clean). Callers get this via
+    _detect_lead_noise_start() rather than a hand-derived constant, so it
+    stays correct as curve data changes. `ref_d` is the target
     density _find_anchor() searches for to find that stage's own
     calibration reference point -- ignored for the final stage, which is
     always grey-anchored to 18% reflectance regardless of what's passed.
@@ -593,15 +630,15 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 # Main
 # =========================================================================
 # key, file prefix, display name, spectral sensitivity, cascade-stage builder
-# (given a layer index, the chosen paper's full 3-layer curve list, and that
-# paper's _find_anchor start index, returns the ordered
-# [(curve, increasing, start, ref_d), ...] list build_print_cascade()
-# expects). All four are reversal (slide) films -- none can go straight onto
-# negative print paper, so all four route through INTERNEGATIVE_II_CURVES via
-# the same 3-stage film->internegative->paper cascade (see README "What these
-# replicate"). A camera negative (e.g. Portra) would use a 2-stage cascade
-# instead, the same shape as build_trix_cascade() -- deliberately not part of
-# this lineup, see tasks/DONE-07-... for why negative films were removed.
+# (given a layer index and the chosen paper's full 3-layer curve list,
+# returns the ordered [(curve, increasing, start, ref_d), ...] list
+# build_print_cascade() expects). All four are reversal (slide) films --
+# none can go straight onto negative print paper, so all four route through
+# INTERNEGATIVE_II_CURVES via the same 3-stage film->internegative->paper
+# cascade (see README "What these replicate"). A camera negative (e.g.
+# Portra) would use a 2-stage cascade instead, the same shape as
+# build_trix_cascade() -- deliberately not part of this lineup, see
+# tasks/DONE-07-... for why negative films were removed.
 #
 # Reference densities (ref_d):
 #   - the internegative stage uses INTERNEGATIVE_II_LAD_AIM[li] -- Kodak's
@@ -617,31 +654,34 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 #     internegative's own target -- density_midpoint() is the documented
 #     fallback for that, not presented as manufacturer data.
 #
-# Provia 100F's own curve gets start=1 (not 0): its raw data has the same
-# kind of tiny leading Dmax-plateau digitization noise Endura Premier has,
-# and it's now a non-final stage whose own reference point gets searched too
-# (see build_print_cascade docstring) -- checked directly, not assumed.
+# Every stage's `start` is auto-detected per curve/layer via
+# _detect_lead_noise_start() rather than hand-derived -- e.g. Provia 100F's
+# own curve (layers 0 and 2) has the same kind of tiny leading Dmax-plateau
+# digitization noise Endura Premier has, and it's a non-final stage whose
+# own reference point gets searched too (see build_print_cascade
+# docstring), but this now requires no per-film magic number to discover
+# that or keep it correct as data changes.
 COLOR_FILMS = [
     ("velvia", "Velvia50", "Velvia 50", VELVIA_SENS,
-     lambda li, paper, pstart: [
-         (VELVIA_CURVES[li], False, 0, density_midpoint(VELVIA_CURVES[li])),
-         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, pstart, None)]),
+     lambda li, paper: [
+         (VELVIA_CURVES[li], False, _detect_lead_noise_start(VELVIA_CURVES[li], False), density_midpoint(VELVIA_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("kodachrome64", "Kodachrome64", "Kodachrome 64", KODACHROME64_SENS,
-     lambda li, paper, pstart: [
-         (KODACHROME64_CURVES[li], False, 0, density_midpoint(KODACHROME64_CURVES[li])),
-         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, pstart, None)]),
+     lambda li, paper: [
+         (KODACHROME64_CURVES[li], False, _detect_lead_noise_start(KODACHROME64_CURVES[li], False), density_midpoint(KODACHROME64_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("provia100f", "Provia100F", "Fuji Provia 100F", PROVIA100F_SENS,
-     lambda li, paper, pstart: [
-         (PROVIA100F_CURVES[li], False, 1, density_midpoint(PROVIA100F_CURVES[li])),
-         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, pstart, None)]),
+     lambda li, paper: [
+         (PROVIA100F_CURVES[li], False, _detect_lead_noise_start(PROVIA100F_CURVES[li], False), density_midpoint(PROVIA100F_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("ektachrome100d", "Ektachrome100D", "Kodak Ektachrome 100D", EKTACHROME100D_SENS,
-     lambda li, paper, pstart: [
-         (EKTACHROME100D_CURVES[li], False, 0, density_midpoint(EKTACHROME100D_CURVES[li])),
-         (INTERNEGATIVE_II_CURVES[li], True, 0, INTERNEGATIVE_II_LAD_AIM[li]),
-         (paper[li], True, pstart, None)]),
+     lambda li, paper: [
+         (EKTACHROME100D_CURVES[li], False, _detect_lead_noise_start(EKTACHROME100D_CURVES[li], False), density_midpoint(EKTACHROME100D_CURVES[li])),
+         (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
+         (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
 ]
 COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 
@@ -684,8 +724,8 @@ def main():
         print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {len(COLOR_LOOKS)*2} LUTs")
         for variant_label,use_hk in [("Classic",False),("Modern",True)]:
             for look in COLOR_LOOKS:
-                paper,start=PAPER_LADDER[look]
-                xfers=[build_print_cascade(stage_fn(li,paper,start)) for li in range(3)]
+                paper=PAPER_LADDER[look]
+                xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
                 write_color_lut(os.path.join(outdir,fname),
