@@ -570,6 +570,10 @@ def density_midpoint(curve):
     lo, hi = _straight_line_density_range(xs, ys)
     return (lo + hi) / 2
 
+# Computed once at import instead of once per build_trix_cascade() call --
+# depends only on TRIX_DEV7, not on the paper/look/variant being built.
+TRIX_DEV7_REF_D = density_midpoint(TRIX_DEV7)
+
 def build_trix_cascade(paper):
     """Tri-X dev7 negative × Polymax paper → transfer function E→reflectance.
 
@@ -581,7 +585,7 @@ def build_trix_cascade(paper):
     Polymax grade -- see tasks/DONE-07-... for the numbers). Don't copy this
     pattern for a new material without checking it the same way first.
     """
-    return build_print_cascade([(TRIX_DEV7, True, 0, density_midpoint(TRIX_DEV7)), (paper, True, 0, None)])
+    return build_print_cascade([(TRIX_DEV7, True, 0, TRIX_DEV7_REF_D), (paper, True, 0, None)])
 
 # =========================================================================
 # LUT writers
@@ -661,25 +665,37 @@ def write_color_lut(path, title, lw, xfers, size, use_hk):
 # own reference point gets searched too (see build_print_cascade
 # docstring), but this now requires no per-film magic number to discover
 # that or keep it correct as data changes.
+#
+# Each film's own-stage ref_d is precomputed once per layer here rather than
+# inside the lambda below: density_midpoint() resamples the curve onto 41
+# points and scans local slopes, and depends only on (film, li) -- not on
+# paper/look/variant -- so recomputing it inside the lambda would redo that
+# work on every stage_fn(li, paper) call in main()'s per-look loop instead
+# of once (see tasks/11-...).
+VELVIA_REF_D = [density_midpoint(c) for c in VELVIA_CURVES]
+KODACHROME64_REF_D = [density_midpoint(c) for c in KODACHROME64_CURVES]
+PROVIA100F_REF_D = [density_midpoint(c) for c in PROVIA100F_CURVES]
+EKTACHROME100D_REF_D = [density_midpoint(c) for c in EKTACHROME100D_CURVES]
+
 COLOR_FILMS = [
     ("velvia", "Velvia50", "Velvia 50", VELVIA_SENS,
      lambda li, paper: [
-         (VELVIA_CURVES[li], False, _detect_lead_noise_start(VELVIA_CURVES[li], False), density_midpoint(VELVIA_CURVES[li])),
+         (VELVIA_CURVES[li], False, _detect_lead_noise_start(VELVIA_CURVES[li], False), VELVIA_REF_D[li]),
          (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
          (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("kodachrome64", "Kodachrome64", "Kodachrome 64", KODACHROME64_SENS,
      lambda li, paper: [
-         (KODACHROME64_CURVES[li], False, _detect_lead_noise_start(KODACHROME64_CURVES[li], False), density_midpoint(KODACHROME64_CURVES[li])),
+         (KODACHROME64_CURVES[li], False, _detect_lead_noise_start(KODACHROME64_CURVES[li], False), KODACHROME64_REF_D[li]),
          (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
          (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("provia100f", "Provia100F", "Fuji Provia 100F", PROVIA100F_SENS,
      lambda li, paper: [
-         (PROVIA100F_CURVES[li], False, _detect_lead_noise_start(PROVIA100F_CURVES[li], False), density_midpoint(PROVIA100F_CURVES[li])),
+         (PROVIA100F_CURVES[li], False, _detect_lead_noise_start(PROVIA100F_CURVES[li], False), PROVIA100F_REF_D[li]),
          (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
          (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
     ("ektachrome100d", "Ektachrome100D", "Kodak Ektachrome 100D", EKTACHROME100D_SENS,
      lambda li, paper: [
-         (EKTACHROME100D_CURVES[li], False, _detect_lead_noise_start(EKTACHROME100D_CURVES[li], False), density_midpoint(EKTACHROME100D_CURVES[li])),
+         (EKTACHROME100D_CURVES[li], False, _detect_lead_noise_start(EKTACHROME100D_CURVES[li], False), EKTACHROME100D_REF_D[li]),
          (INTERNEGATIVE_II_CURVES[li], True, _detect_lead_noise_start(INTERNEGATIVE_II_CURVES[li], True), INTERNEGATIVE_II_LAD_AIM[li]),
          (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]),
 ]
