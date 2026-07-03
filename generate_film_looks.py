@@ -9,10 +9,10 @@ Generates 12 folders of curated film-look LUTs that replace your tone mapper:
 
   trix_classic/               — 36 LUTs (6 looks x 6 filters), pure film physics
   trix_modern/                 — 36 LUTs, adds Helmholtz-Kohlrausch perceptual correction
-  velvia/                      — 10 LUTs (5 real-paper looks x classic/modern)
-  kodachrome64/                 — 10 LUTs, same real-paper-cascade structure
-  provia100f/                   — 10 LUTs, same real-paper-cascade structure
-  ektachrome100d/               — 10 LUTs, same real-paper-cascade structure
+  velvia/                      — 16 LUTs (5 real-paper + 3 direct-print looks x classic/modern)
+  kodachrome64/                 — 16 LUTs, same structure
+  provia100f/                   — 16 LUTs, same structure
+  ektachrome100d/               — 16 LUTs, same structure
   negative-portra-400/          — 10 LUTs, same real-paper-cascade structure (no internegative)
   negative-ektar-100/           — 10 LUTs, same real-paper-cascade structure (no internegative)
   negative-gold-200/            — 10 LUTs, same real-paper-cascade structure (no internegative)
@@ -20,18 +20,22 @@ Generates 12 folders of curated film-look LUTs that replace your tone mapper:
   negative-superia-reala/       — 10 LUTs, same real-paper-cascade structure (no internegative)
   negative-superia-xtra-400/    — 10 LUTs, same real-paper-cascade structure (no internegative)
 
-Total: 172 LUTs.
+Total: 196 LUTs.
 
-The first four color films are reversal (slide) stocks. Each is printed
-through a real duplicating internegative (EASTMAN Color Internegative II
-Film 5272/7272) and then a real RA-4 print paper -- the same cascade
-structure real darkroom labs used to get a printable result from a slide.
-The last six are camera color *negatives*, printed straight onto that same
-real RA-4 paper with no internegative stage -- see NEGATIVE_FILMS. Every
-look (ExtraSoft/Soft/Normal/Punchy/ExtraPunchy) across all ten color films
-is produced purely by choice of that print paper -- see PAPER_LADDER below
--- not a synthetic contrast multiplier. See README.md for the full process
-writeup.
+The first four color films are reversal (slide) stocks. Each gets two
+independent print routes into its own folder: 5 looks (ExtraSoft/Soft/
+Normal/Punchy/ExtraPunchy) printed through a real duplicating internegative
+(EASTMAN Color Internegative II Film 5272/7272) and a real RA-4 print paper
+-- the same cascade structure real darkroom labs used to get a printable
+result from a slide -- via PAPER_LADDER, and 3 looks (RadianceIII/
+IlfochromeM/IlfochromeP) printed straight onto a real direct-print paper
+with no internegative stage, via DIRECT_PRINT_PAPERS, with a real-physics
+gamma correction applied first (see GAMMA_CORRECT_TARGET). The last six are
+camera color *negatives*, printed straight onto that same real RA-4 paper
+with no internegative stage and no gamma correction (a camera negative's own
+gamma is already low, unlike a reversal original's) -- see NEGATIVE_FILMS.
+See README.md for the full process writeup, including "Why a reversal print
+crushes without correction" for the gamma-correction physics.
 
 Usage:
   python generate_film_looks.py                            # 65^3 default, everything
@@ -370,6 +374,71 @@ PAPER_LADDER = {
 "ExtraPunchy": SUPRA_ENDURA,
 }
 COLOR_LOOKS = ["ExtraSoft", "Soft", "Normal", "Punchy", "ExtraPunchy"]
+
+# =========================================================================
+# Direct-print papers for reversal originals -- real photographic materials
+# designed to be exposed *directly* by a reversal (slide) original, with no
+# internegative-duplication stage in between: Kodak Ektachrome Radiance III
+# (a genuine Kodak reversal print paper) and Ilfochrome Micrographic M/P
+# (dye-destruction duplicating/microfilm stock; CLAUDE.md already records
+# that this pairing was tried once for Velvia as a *direct* cascade and
+# rejected for compounding to an unusably contrasty 2.0-3.0 system gamma --
+# that rejection was for going through it *uncorrected*, the same problem
+# every route here has without the GAMMA_CORRECT_TARGET fix above; it is not
+# re-rejected here). Digitized from film_paper_filter_data/papers/color/
+# for_reversal/*.json (kodak_ektachrome_radiance_iii.json,
+# ilfochrome_micrographic_m.json, ilfochrome_micrographic_p.json) -- the
+# same spectral_film_lut-derived pool PAPER_LADDER's papers come from, not a
+# separate/less-trusted source.
+#
+# Density *falls* with exposure for all three (increasing=False), the same
+# direction as every reversal dye layer (VELVIA_CURVES etc.) and unlike
+# every PAPER_LADDER paper (increasing=True, ordinary negative-working RA-4
+# stock) -- confirmed directly against each raw JSON's own digitized curve,
+# not assumed: these are reversal-process print materials (R-3-family
+# chromogenic reversal paper / dye-destruction), photographically a
+# different animal from RA-4 despite both being "the paper a print comes
+# out on." Layer order matches the established [red/cyan, green/magenta,
+# blue/yellow] convention (confirmed against each JSON's own log_sensitivity
+# peak wavelengths: ~650nm/~550nm/~445nm), so no reordering was needed the
+# way INTERNEGATIVE_II_CURVES needed. Each source JSON also carries a real
+# published Status A "lad" field (Radiance III: [1,1,1]; both Ilfochromes:
+# [0.910,1.013,0.981]) confirming these are genuine calibrated print
+# materials, not experimental/placeholder data -- unused here since only a
+# *non-final* cascade stage needs a ref_d (see build_print_cascade's
+# docstring) and these are always the final stage in DIRECT_PRINT_PAPERS'
+# 2-stage cascade.
+#
+# No SENS (spectral sensitivity) data is transcribed for any of the three --
+# same as every PAPER_LADDER paper, a paper's own spectral sensitivity is
+# irrelevant here because it never receives scene light directly, only the
+# calibrated printing exposure build_print_cascade() hands it from the
+# reversal film's own (gamma-corrected) stage.
+# =========================================================================
+RADIANCE_III_CURVES = [
+{0.0:2.5171,0.1634:2.5206,0.3578:2.5171,0.5251:2.4785,0.6924:2.4181,0.8076:2.3545,0.9491:2.2256,1.1217:2.0444,1.2737:1.8659,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+{0.0057:2.4181,0.2567:2.4199,0.4668:2.4026,0.5912:2.3789,0.7624:2.3457,0.9335:2.2528,1.0891:2.1168,1.2058:2.0002,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+{0.0:2.451,0.2023:2.4549,0.3851:2.4564,0.5679:2.4238,0.7274:2.4026,0.8596:2.3538,0.9841:2.2606,1.1043:2.1359,1.2061:1.9966,1.412:1.6738,1.4794:1.5728,1.5421:1.4756,1.6072:1.3784,1.6793:1.2805,1.756:1.1832,1.835:1.0842,1.9117:0.9874,1.9884:0.8902,2.0674:0.7912,2.1465:0.695,2.2255:0.6014,2.3068:0.5045,2.3882:0.407,2.4719:0.3106,2.5648:0.2201,2.6625:0.1574,2.7601:0.1217,2.8577:0.1042,2.9553:0.0987,3.0529:0.0969,3.1506:0.0953,3.2482:0.0931,3.3458:0.0901,3.4434:0.0874,3.541:0.0862,3.6387:0.0862,3.7363:0.0862,3.7921:0.0862},
+]
+ILFOCHROME_M_CURVES = [
+{0.001:2.0643,0.0411:2.0617,0.1008:2.0606,0.1606:2.0583,0.2203:2.0573,0.28:2.0552,0.3397:2.0547,0.3994:2.0521,0.4592:2.0514,0.5189:2.0481,0.5786:2.0477,0.6383:2.0436,0.6981:2.0341,0.7578:2.0212,0.8175:2.0035,0.8772:1.9785,0.937:1.9458,0.9967:1.905,1.0564:1.8569,1.1147:1.8022,1.1673:1.7431,1.2128:1.6843,1.254:1.6243,1.291:1.564,1.3223:1.5025,1.3547:1.4419,1.3792:1.3826,1.4076:1.3226,1.4361:1.2635,1.4645:1.2053,1.4915:1.1466,1.5185:1.0878,1.5484:1.0292,1.5797:0.9648,1.876:0.3368,1.9016:0.285,1.9464:0.2151,2.0347:0.1199,2.1094:0.0693,2.1752:0.0478,2.2739:0.0374,2.4055:0.0277,2.9932:0.0158},
+{0.0411:2.3973,0.1008:2.3953,0.1606:2.3925,0.2203:2.3901,0.28:2.3877,0.3397:2.3841,0.3994:2.3816,0.4592:2.3796,0.5189:2.3776,0.5786:2.3738,0.6383:2.3644,0.6981:2.347,0.7421:2.3315,0.7935:2.3068,0.8578:2.2711,0.9475:2.2012,1.0308:2.1153,1.0834:2.0498,1.1261:1.9903,1.1645:1.932,1.2:1.8749,1.2341:1.8154,1.2654:1.7539,1.2939:1.6895,1.3209:1.6269,1.3465:1.5674,1.3735:1.5049,1.4005:1.4426,1.4261:1.3832,1.4517:1.3234,1.4773:1.2653,1.5043:1.2021,1.5328:1.1363,1.5598:1.0773,1.5854:1.0147,1.6152:0.9493,1.6653:0.8221,1.7491:0.6257,1.8119:0.4799,1.8747:0.3341,1.924:0.2493,1.9719:0.1735,2.0406:0.0991,2.1124:0.053,2.2231:0.0321,2.419:0.0269,2.6089:0.0217,2.8302:0.0158,2.9977:0.0128},
+{0.0525:2.4545,0.1122:2.4523,0.1719:2.4492,0.2317:2.4463,0.2914:2.4427,0.3511:2.4393,0.4108:2.4356,0.4705:2.4323,0.5303:2.4288,0.59:2.4197,0.6497:2.4032,0.7094:2.3795,0.7549:2.3582,0.8578:2.2889,0.9573:2.1945,1.0493:2.0935,1.0962:2.0326,1.1374:1.9732,1.1758:1.9138,1.2114:1.8561,1.2441:1.7966,1.274:1.735,1.301:1.6736,1.3266:1.6137,1.3536:1.5541,1.382:1.4911,1.409:1.4298,1.4346:1.3657,1.4602:1.305,1.4858:1.2448,1.5114:1.1856,1.5384:1.1237,1.5655:1.0611,1.5996:0.9812,1.7124:0.7142,1.8006:0.5075,1.8762:0.3341,1.9449:0.2226,1.9906:0.1735,2.0743:0.1058,2.1707:0.0589,2.2223:0.05,2.2664:0.05,2.3921:0.0463,2.5311:0.0433,2.7509:0.0433,2.9962:0.0381},
+]
+ILFOCHROME_P_CURVES = [
+{0.004:1.9192,0.3655:1.9171,0.5641:1.9083,0.7291:1.8805,0.8845:1.8364,1.007:1.7801,1.0844:1.7334,1.1638:1.6696,1.2275:1.6038,1.3035:1.5137,1.387:1.4038,1.5294:1.1882,1.6882:0.959,1.8005:0.7922,1.8998:0.6491,1.984:0.5182,2.0908:0.3541,2.1798:0.2484,2.2633:0.1683,2.3783:0.0897,2.4673:0.0517,2.5509:0.0361,2.659:0.0348,2.8151:0.0327,2.9356:0.0341,3.0:0.0354},
+{0.0013:2.2284,0.2286:2.2202,0.3724:2.208,0.5038:2.1917,0.6873:2.1517,0.7893:2.1205,0.905:2.071,1.0098:2.0161,1.1152:1.9266,1.2131:1.8229,1.2843:1.7347,1.3336:1.6723,1.3979:1.5665,1.4869:1.4187,1.6061:1.2126,1.717:1.0146,1.8457:0.7759,1.8984:0.6667,1.9607:0.542,2.0401:0.4002,2.1414:0.2538,2.214:0.167,2.2736:0.1134,2.3263:0.0734,2.3996:0.0456,2.4755:0.0354,2.5591:0.0354,2.6672:0.0354,2.811:0.0334,2.9151:0.0341,2.9986:0.0354},
+{0.004:2.2812,0.2779:2.2582,0.4696:2.2358,0.5778:2.2195,0.6859:2.1985,0.7722:2.1755,0.827:2.1511,0.8804:2.1253,0.9461:2.0832,1.0063:2.0331,1.0666:1.9802,1.1385:1.9076,1.2699:1.7469,1.3856:1.5543,1.4596:1.4364,1.5499:1.2858,1.6348:1.1448,1.7608:0.9359,1.8361:0.803,1.921:0.6769,1.9771:0.5847,2.0538:0.4504,2.1161:0.3589,2.1853:0.2741,2.2537:0.2144,2.3167:0.1656,2.392:0.1249,2.5029:0.0897,2.6399:0.0734,2.7713:0.0626,2.885:0.0571,2.9781:0.0585},
+]
+
+# name -> paper curve list (3 layers), the direct-print equivalent of
+# PAPER_LADDER. Iterated by DIRECT_PRINT_LOOKS in file-naming order.
+DIRECT_PRINT_PAPERS = {
+    "RadianceIII": RADIANCE_III_CURVES,
+    "IlfochromeM": ILFOCHROME_M_CURVES,
+    "IlfochromeP": ILFOCHROME_P_CURVES,
+}
+DIRECT_PRINT_LOOKS = ["RadianceIII", "IlfochromeM", "IlfochromeP"]
 
 # =========================================================================
 # Film data — Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D
@@ -769,19 +838,25 @@ def reversal_grey_target(curve):
     _, ys = _sc(curve)
     return _grey_target_density(ys)
 
-def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
-    """The density span [lo, hi] covered by the straight-line (constant-
-    gamma) portion of a digitized H&D curve, excluding the toe (near Dmin)
-    and shoulder (near Dmax) where real film/paper response compresses.
-    Finds it by resampling onto a uniform exposure grid (`_il()`), taking
-    local slope between adjacent grid points, and keeping the widest
-    contiguous run where |slope| is within `frac` of the curve's peak
+def _straight_line_window(xs, ys, n_samples=41, frac=0.5):
+    """Shared core of _straight_line_density_range() and _measured_gamma():
+    finds the straight-line (constant-gamma) portion of a digitized H&D
+    curve, excluding the toe (near Dmin) and shoulder (near Dmax) where real
+    film/paper response compresses. Resamples onto a uniform exposure grid
+    (`_il()`), takes local slope between adjacent grid points, and keeps the
+    widest contiguous run where |slope| is within `frac` of the curve's peak
     slope. Resampling onto a uniform grid first matters: raw point-to-point
     slopes on the original digitized points spike on short intervals from
     ordinary digitization noise (this codebase's curves are adaptively,
     unevenly spaced -- see curve_digitizer's RDP simplification), even
     where the underlying curve is smooth; a uniform grid dilutes that noise
     instead of amplifying it.
+
+    Returns (grid, grid_y, lo, hi) where grid[lo:hi+1]/grid_y[lo:hi+1] is the
+    straight-line window and slopes[lo:hi] (i.e. grid_y[i+1]-grid_y[i] for i
+    in range(lo,hi)) are the segment's own local slopes -- density range
+    (_straight_line_density_range) and gamma (_measured_gamma) are two
+    different readings of that same window, not two different searches.
     """
     x_lo, x_hi = xs[0], xs[-1]
     grid = [x_lo + (x_hi-x_lo)*i/(n_samples-1) for i in range(n_samples)]
@@ -802,8 +877,33 @@ def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
             i = j
         else:
             i += 1
-    seg_ys = grid_y[best[0]:best[1]+1]
+    return grid, grid_y, best[0], best[1]
+
+def _straight_line_density_range(xs, ys, n_samples=41, frac=0.5):
+    """The density span [lo, hi] covered by the straight-line (constant-
+    gamma) portion of a digitized H&D curve -- see _straight_line_window()
+    for how that portion is found."""
+    grid, grid_y, lo, hi = _straight_line_window(xs, ys, n_samples, frac)
+    seg_ys = grid_y[lo:hi+1]
     return min(seg_ys), max(seg_ys)
+
+def _measured_gamma(curve, n_samples=41, frac=0.5):
+    """Real measured gamma (contrast) of a digitized H&D curve: the average
+    slope magnitude (density change per log-exposure unit) over its own
+    straight-line portion, found by _straight_line_window() -- the same
+    window density_midpoint() reads its density range from, just read for
+    slope instead of span. Reported as a positive magnitude regardless of
+    curve direction (a reversal dye layer or a reversal-type direct-print
+    paper has density *falling* with exposure, `increasing=False`; every use
+    of gamma in this file -- GAMMA_CORRECT_TARGET and gamma_correct_curve()
+    below, applying L.A. Jones's 1920 gamma-product rule -- cares about
+    magnitude only, matching how gamma is conventionally reported in every
+    manufacturer datasheet already in this file (INTERNEGATIVE_II_CURVES'
+    own comment states "measured gamma ~0.527" the same way, sign dropped)."""
+    xs, ys = _sc(curve)
+    grid, grid_y, lo, hi = _straight_line_window(xs, ys, n_samples, frac)
+    slopes = [abs((grid_y[i+1]-grid_y[i])/(grid[i+1]-grid[i])) for i in range(lo, hi)]
+    return sum(slopes) / len(slopes)
 
 def density_midpoint(curve):
     """Density at the midpoint of the density range spanned by a curve's
@@ -828,6 +928,101 @@ def density_midpoint(curve):
     xs, ys = _sc(curve)
     lo, hi = _straight_line_density_range(xs, ys)
     return (lo + hi) / 2
+
+# =========================================================================
+# Gamma correction for direct-print (no-internegative) reversal cascades --
+# see DIRECT_PRINT_PAPERS below and papers/masking_research/README.md for
+# the full research trail. Summary of the physics, since this leans on a
+# 100+ year old result that isn't otherwise documented anywhere else in this
+# file:
+#
+# A reversal film printed straight onto a real print paper crushes to only
+# ~3-3.5 stops of usable tonal separation around grey (verified by hand:
+# Kodachrome 64 on Kodak Ektachrome Radiance III, uncorrected, reaches
+# encoded 0.93 by +1.5 EV and 0.005 by -1.5 EV) even though the film's own
+# digitized H&D curve spans ~9 stops. This is not a data or code bug -- it's
+# L.A. Jones's 1920 tone-reproduction theory (papers/
+# jones_1920_theory_of_tone_reproduction.pdf, p.64): "the product of the
+# gamma of the negative by that of the positive is equal to that of the
+# reproduction curve" -- gamma_stage1 * gamma_stage2 * ... = gamma_system,
+# with Jones's own worked example landing at ~1.01 as the target for
+# faithful (undistorted) reproduction of the original's own tonal range.
+# Every material in a print chain has real gamma > 0; unless something in
+# the chain has gamma measurably below 1, the product overshoots 1 and the
+# print is more contrasty than the scene it depicts. A still reversal film's
+# own native gamma is high on its own (Velvia 50 ~1.63, Kodachrome 64 ~1.84,
+# Provia 100F ~1.48, Ektachrome 100D ~1.76 -- see README "Why Adobe RGB").
+# Pairing that directly with a print paper of its own real, unreduced gamma
+# (Radiance III, Ilfochrome Micrographic M/P all measure gamma > 1 on their
+# own straight-line portions -- see _measured_gamma()) compounds well past
+# 1, which is exactly the crush the direct-print route reproduces without
+# correction (and exactly why an earlier version of this project's real,
+# uncorrected Radiance III cascade -- commit cf14a88, replaced in 881f3da --
+# was "structurally very contrasty," per README's own account).
+#
+# Real duplicating labs hit the same wall: EASTMAN Color Internegative Film
+# was engineered (internegative gamma ~0.5 x print-paper gamma ~2.0 ~= 1.0)
+# for a low-contrast (gamma ~1.0) *duplicating positive* input (Ektachrome
+# Commercial, "never projected" -- papers/masking_research/
+# brianpritchard_FAOL_colour_duplicating_film_stocks.html), not a
+# full-contrast camera original -- so feeding it a real reversal film has the
+# identical mismatch, just hidden behind an extra stage (see COLOR_FILMS,
+# left untouched here). Real labs' own fix for a too-high-contrast original
+# was flashing (US Patent 4,739,375, papers/
+# patent_US4739375_internegative_contrast_correction_flash.pdf: a second,
+# neutral-density-filtered flash exposure) or an optical contrast-reduction
+# sandwich mask (papers/masking_research/
+# freestylephoto_contrast_masking_traditional_print.html) -- both real,
+# neither with a published formula (brianpritchard.com's own verdict on
+# flashing here: "none [are] satisfactory"). Flashing only ever partially
+# fixes this (it adds density to the toe/shadows, leaving the shoulder/
+# highlights' own gamma close to untouched) -- since our own measurement
+# above crushes symmetrically at both ends, that's not the right model to
+# copy even if its exact dial setting were published, which it isn't.
+#
+# What this file does instead: apply Jones's own math directly to the
+# already-digitized curve data, rather than simulate either physical
+# mechanism. gamma_correct_curve() rescales a reversal film's own curve
+# around its existing reference-density anchor (density_midpoint(), the
+# same point already used to calibrate this stage's exposure handoff) by
+# whatever factor brings (film gamma) x (that specific paper's own real
+# measured gamma) to GAMMA_CORRECT_TARGET. This is a neutral, magnitude-only
+# correction (matching a real flash's own spectral neutrality) applied
+# identically to the same reasoning for every layer, letting each dye
+# layer's own real curve shape carry the rest -- not a fabricated curve, and
+# labeled exactly as derived-not-published, the same honesty tier as
+# density_midpoint() itself.
+# =========================================================================
+GAMMA_CORRECT_TARGET = 1.0
+
+def gamma_correct_curve(curve, pivot_d, downstream_gamma, target=GAMMA_CORRECT_TARGET):
+    """Rescale a reversal film's own characteristic curve so (this curve's
+    own measured gamma) x `downstream_gamma` (the real measured gamma of
+    whatever print material follows it) lands at `target` -- see the
+    GAMMA_CORRECT_TARGET block above for the citation and full reasoning.
+
+    Density values are rescaled around `pivot_d` (the curve's own existing
+    reference-density anchor, e.g. VELVIA_REF_D[li] -- the same value
+    already used to calibrate this stage's printing-exposure handoff in
+    build_print_cascade()) rather than recomputed from the corrected curve.
+    This is exact, not approximate: wherever the original curve's density
+    equals pivot_d, the corrected curve's density at that same log-exposure
+    still equals pivot_d too (the correction term is zero there), so the
+    anchor crossing _find_anchor() finds for pivot_d doesn't move -- the
+    caller can keep reusing the original film_ref_d without recomputing it,
+    and every downstream printer-light calibration stays exactly where it
+    was. Because `correction` (target / (own_gamma * downstream_gamma)) is
+    always positive (both gammas are reported as positive magnitudes -- see
+    _measured_gamma()), this is a positive affine rescale of the density
+    axis: monotonicity, direction, and any tied/repeated density values
+    (the leading digitization-noise plateaus _detect_lead_noise_start()
+    looks for) are all preserved exactly, so the original curve's own start
+    index is still correct for the corrected curve -- no separate noise
+    detection needed on the corrected output.
+    """
+    own_gamma = _measured_gamma(curve)
+    correction = target / (own_gamma * downstream_gamma)
+    return {k: pivot_d + (v - pivot_d) * correction for k, v in curve.items()}
 
 # Computed once at import instead of once per build_trix_cascade() call --
 # depends only on TRIX_DEV7, not on the paper/look/variant being built.
@@ -966,6 +1161,45 @@ COLOR_FILMS = [
 COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 
 # =========================================================================
+# Direct-print (no internegative) cascades for the same four reversal films,
+# onto DIRECT_PRINT_PAPERS instead of through INTERNEGATIVE_II_CURVES +
+# PAPER_LADDER. COLOR_FILMS/_reversal_stage_fn() above is deliberately left
+# untouched -- this is a second, additional route for each film, not a
+# replacement (see GAMMA_CORRECT_TARGET's comment for why the internegative
+# route is a separate, not-yet-revisited problem).
+# =========================================================================
+def _direct_print_stage_fn(film_curves, film_ref_d):
+    """Builds a 2-stage (film -> paper, no internegative) stage-list
+    function for one of DIRECT_PRINT_PAPERS. Each layer's own reversal curve
+    is gamma-corrected (gamma_correct_curve(), see GAMMA_CORRECT_TARGET's
+    comment) using *that specific paper layer's own* real measured gamma as
+    the downstream factor -- not a single blended film-wide or paper-wide
+    number -- so R/G/B each get the correction their own physical channel
+    actually needs, the same way a real neutral flash lands on three
+    differently-shaped dye-layer curves and lets each layer's own toe/
+    shoulder carry the rest. `film_ref_d[li]` is reused unchanged as both
+    the correction's pivot and the corrected curve's own ref_d (see
+    gamma_correct_curve()'s docstring for why recomputing it isn't needed);
+    `start` likewise stays the *original* curve's own auto-detected index,
+    since the correction is a positive rescale that can't change which
+    samples are leading noise."""
+    def stage_fn(li, paper):
+        downstream_gamma = _measured_gamma(paper[li])
+        corrected = gamma_correct_curve(film_curves[li], film_ref_d[li], downstream_gamma)
+        start = _detect_lead_noise_start(film_curves[li], False)
+        return [
+            (corrected, False, start, film_ref_d[li]),
+            (paper[li], False, _detect_lead_noise_start(paper[li], False), None)]
+    return stage_fn
+
+DIRECT_PRINT_STAGE_FNS = {
+    "velvia": _direct_print_stage_fn(VELVIA_CURVES, VELVIA_REF_D),
+    "kodachrome64": _direct_print_stage_fn(KODACHROME64_CURVES, KODACHROME64_REF_D),
+    "provia100f": _direct_print_stage_fn(PROVIA100F_CURVES, PROVIA100F_REF_D),
+    "ektachrome100d": _direct_print_stage_fn(EKTACHROME100D_CURVES, EKTACHROME100D_REF_D),
+}
+
+# =========================================================================
 # Camera color *negative* films -- Kodak Portra 400, Kodak Ektar 100, Kodak
 # Gold 200, Fuji Superia Reala. Unlike COLOR_FILMS above, these print
 # straight onto a real paper with a 2-stage cascade (own curve -> paper),
@@ -1052,16 +1286,33 @@ def main():
                     print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 
     # --- Color films: Velvia 50, Kodachrome 64, Provia 100F, Ektachrome 100D ---
-    # Every look is a real paper choice (PAPER_LADDER), no synthetic gamma.
+    # Every PAPER_LADDER look is a real paper choice through the internegative
+    # route, no synthetic gamma. Each film also gets DIRECT_PRINT_LOOKS: the
+    # same reversal curve, gamma-corrected (see GAMMA_CORRECT_TARGET), printed
+    # straight onto a real direct-print paper with no internegative stage --
+    # see DIRECT_PRINT_STAGE_FNS's own comment for why this is a second route
+    # per film rather than a replacement for the PAPER_LADDER one.
     for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
         if key not in only: continue
         lw=layer_weights(sens,ssf=cs["ssf"])
         outdir=os.path.join(args.output,key)
         os.makedirs(outdir,exist_ok=True)
-        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {len(COLOR_LOOKS)*2} LUTs")
+        n_luts=(len(COLOR_LOOKS)+len(DIRECT_PRINT_LOOKS))*2
+        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {n_luts} LUTs")
         for look in COLOR_LOOKS:
             paper=PAPER_LADDER[look]
             xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
+            for variant_label,use_hk in [("Classic",False),("Modern",True)]:
+                fname=f"{fileprefix}_{variant_label}_{look}.cube"
+                t1=time.time()
+                write_color_lut(os.path.join(outdir,fname),
+                                f"{dispname} {variant_label} {look}",lw,xfers,args.size,use_hk,cs=cs)
+                total+=1
+                print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
+        direct_stage_fn=DIRECT_PRINT_STAGE_FNS[key]
+        for look in DIRECT_PRINT_LOOKS:
+            paper=DIRECT_PRINT_PAPERS[look]
+            xfers=[build_print_cascade(direct_stage_fn(li,paper)) for li in range(3)]
             for variant_label,use_hk in [("Classic",False),("Modern",True)]:
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()
