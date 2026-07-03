@@ -1436,30 +1436,79 @@ ULTRAMAX400_REF_D = [density_midpoint(c) for c in ULTRAMAX400_CURVES]
 SUPERIA_REALA_REF_D = [density_midpoint(c) for c in SUPERIA_REALA_CURVES]
 SUPERIA_XTRA400_REF_D = [density_midpoint(c) for c in SUPERIA_XTRA400_CURVES]
 
-def _negative_stage_fn(film_curves, film_ref_d):
+# Fitted split-normal-CDF parameters (see GAMMA_CORRECT_TARGET's comment
+# block for the model and physical justification), produced the same way
+# and by the same tool (tools/gamma_correction_fit/main.py) as the reversal-
+# film/direct-print-paper fits above -- added after real-world use of the
+# corrected direct-print route showed negative films rendering *punchier*
+# than the freshly-corrected reversal route, backwards from the real
+# photographic hierarchy (reversal stock is the punchier material). Root
+# cause, measured directly: negative films' own native gamma is correctly
+# low (0.47-0.68 via _measured_gamma(), matching the low-native-gamma design
+# every color negative stock uses so it prints at roughly unity contrast on
+# normal paper) -- but PAPER_LADDER's own real measured gammas are steep
+# (2.5-4.3 across all 5 papers, including "ExtraSoft") and had never been
+# checked against Jones's rule, since PAPER_LADDER's contrast ladder was
+# derived from measuring rendered *span* (see "Choosing a print paper"), not
+# from a faithful-reproduction target. Negative films were landing at local
+# gamma ~1.4-1.7 near grey as a result, versus the direct-print route's
+# ~1.0-1.1 -- this brings them to the same cited target.
+PORTRA400_SPLITGAUSS_FIT = [(-0.70038, 0.03093, 2.57193, 1.65061, 1.71457), (-0.86103, 0.45501, 2.93445, 1.56294, 1.72233), (-0.81425, 0.49958, 3.84205, 1.89852, 1.99513)]
+EKTAR100_SPLITGAUSS_FIT = [(-0.4743, 0.13059, 2.18973, 1.14815, 1.47336), (-0.40382, 0.54321, 2.76455, 1.2091, 1.62263), (-0.3225, 0.64147, 3.65097, 1.5602, 1.82413)]
+GOLD200_SPLITGAUSS_FIT = [(-0.90396, 0.13546, 1.97904, 1.2081, 1.28289), (-0.97357, 0.52209, 2.45108, 1.21737, 1.30855), (-0.96708, 0.71997, 2.95163, 1.3048, 1.39998)]
+ULTRAMAX400_SPLITGAUSS_FIT = [(-0.95426, 0.11996, 2.31556, 1.5183, 1.63969), (-1.08119, 0.48849, 2.80918, 1.53045, 1.67593), (-0.8204, 0.72756, 3.58136, 1.71247, 1.80699)]
+SUPERIA_REALA_SPLITGAUSS_FIT = [(-0.66916, 0.28091, 2.43622, 1.14306, 1.24322), (-0.76371, 0.45357, 2.83446, 1.28848, 1.38359), (-0.7417, 0.92877, 3.12751, 1.16353, 1.21494)]
+SUPERIA_XTRA400_SPLITGAUSS_FIT = [(-0.87916, -0.02129, 2.69236, 1.60197, 1.68601), (-1.0027, 0.28678, 3.06989, 1.47399, 1.57426), (-1.07883, 0.59911, 3.28507, 1.30548, 1.48051)]
+EXTRASOFT_LADDER_SPLITGAUSS_FIT = [(1.15345, 0.1427, 2.8191, 0.31865, 0.26408), (1.15143, 0.16865, 2.72305, 0.32574, 0.25562), (1.13107, 0.16119, 2.49537, 0.32053, 0.27389)]
+SOFT_LADDER_SPLITGAUSS_FIT = [(1.91889, 0.17396, 2.74557, 0.27598, 0.23077), (1.91835, 0.17973, 2.67193, 0.29549, 0.22953), (1.89651, 0.18107, 2.44614, 0.28978, 0.24665)]
+NORMAL_LADDER_SPLITGAUSS_FIT = [(-1.41765, 0.0994, 2.60846, 0.31537, 0.31046), (-1.41426, 0.10326, 2.60966, 0.31249, 0.35737), (-1.42853, 0.10225, 2.402, 0.30765, 0.26383)]
+PUNCHY_LADDER_SPLITGAUSS_FIT = [(1.09443, 0.11165, 2.66888, 0.30535, 0.38118), (1.05771, 0.11567, 2.45743, 0.28037, 0.26923), (1.05294, 0.06956, 2.45706, 0.28822, 0.26974)]
+EXTRAPUNCHY_LADDER_SPLITGAUSS_FIT = [(-1.31601, 0.09836, 2.63391, 0.2441, 0.18074), (-1.30717, 0.09246, 2.57494, 0.24627, 0.2234), (-1.32696, 0.10403, 2.49781, 0.24027, 0.16483)]
+PAPER_LADDER_FIT = {
+    "ExtraSoft": EXTRASOFT_LADDER_SPLITGAUSS_FIT, "Soft": SOFT_LADDER_SPLITGAUSS_FIT,
+    "Normal": NORMAL_LADDER_SPLITGAUSS_FIT, "Punchy": PUNCHY_LADDER_SPLITGAUSS_FIT,
+    "ExtraPunchy": EXTRAPUNCHY_LADDER_SPLITGAUSS_FIT,
+}
+
+def _negative_gammacorrect_stage_fn(film_curves, film_ref_d, film_fit):
     """Builds a NEGATIVE_FILMS stage-list function for a 3-layer camera
-    negative: its own curve -> whichever paper is passed in at call time.
-    No internegative stage -- see the module comment above. Mirrors
-    _reversal_stage_fn()'s shape but with increasing=True (density rises
-    with exposure, like TRIX_DEV7 and every PAPER_LADDER paper) on both
-    stages instead of False on the first."""
-    return lambda li, paper: [
-        (film_curves[li], True, _detect_lead_noise_start(film_curves[li], True), film_ref_d[li]),
-        (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
+    negative: its own curve, gamma-corrected (gamma_correct_curve(), see
+    GAMMA_CORRECT_TARGET's comment) against whichever PAPER_LADDER paper is
+    passed in at call time -- whichever paper is passed at call time -> the
+    same paper directly, no internegative stage. Mirrors
+    _direct_print_stage_fn()'s shape (fitted-model correction, exact local
+    gamma at each material's own real operating point) but with
+    increasing=True (density rises with exposure, like TRIX_DEV7 and every
+    PAPER_LADDER paper) on both stages instead of False on the first --
+    replaces the former, uncorrected _negative_stage_fn() (see this
+    constant block's own comment for why the correction was added)."""
+    def stage_fn(li, paper, paper_fit):
+        xs, ys = _sc(film_curves[li])
+        na0 = _find_anchor(xs, ys, film_ref_d[li], increasing=True,
+                            start=_detect_lead_noise_start(film_curves[li], True))
+        pxs, pys = _sc(paper[li])
+        lhg = _find_anchor(pxs, pys, _grey_target_density(pys), increasing=True,
+                            start=_detect_lead_noise_start(paper[li], True))
+        downstream_gamma = _split_gauss_local_gamma(paper_fit[li], lhg)
+        corrected = gamma_correct_curve(film_fit[li], na0, film_ref_d[li], downstream_gamma)
+        return [
+            (corrected, True, 0, film_ref_d[li]),
+            (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
+    return stage_fn
 
 NEGATIVE_FILMS = [
     ("negative-portra-400", "Portra400", "Kodak Portra 400", PORTRA400_SENS,
-     _negative_stage_fn(PORTRA400_CURVES, PORTRA400_REF_D)),
+     _negative_gammacorrect_stage_fn(PORTRA400_CURVES, PORTRA400_REF_D, PORTRA400_SPLITGAUSS_FIT)),
     ("negative-ektar-100", "Ektar100", "Kodak Ektar 100", EKTAR100_SENS,
-     _negative_stage_fn(EKTAR100_CURVES, EKTAR100_REF_D)),
+     _negative_gammacorrect_stage_fn(EKTAR100_CURVES, EKTAR100_REF_D, EKTAR100_SPLITGAUSS_FIT)),
     ("negative-gold-200", "Gold200", "Kodak Gold 200", GOLD200_SENS,
-     _negative_stage_fn(GOLD200_CURVES, GOLD200_REF_D)),
+     _negative_gammacorrect_stage_fn(GOLD200_CURVES, GOLD200_REF_D, GOLD200_SPLITGAUSS_FIT)),
     ("negative-ultramax-400", "Ultramax400", "Kodak Ultramax 400", ULTRAMAX400_SENS,
-     _negative_stage_fn(ULTRAMAX400_CURVES, ULTRAMAX400_REF_D)),
+     _negative_gammacorrect_stage_fn(ULTRAMAX400_CURVES, ULTRAMAX400_REF_D, ULTRAMAX400_SPLITGAUSS_FIT)),
     ("negative-superia-reala", "SuperiaReala", "Fuji Superia Reala", SUPERIA_REALA_SENS,
-     _negative_stage_fn(SUPERIA_REALA_CURVES, SUPERIA_REALA_REF_D)),
+     _negative_gammacorrect_stage_fn(SUPERIA_REALA_CURVES, SUPERIA_REALA_REF_D, SUPERIA_REALA_SPLITGAUSS_FIT)),
     ("negative-superia-xtra-400", "SuperiaXtra400", "Fuji Superia X-tra 400", SUPERIA_XTRA400_SENS,
-     _negative_stage_fn(SUPERIA_XTRA400_CURVES, SUPERIA_XTRA400_REF_D)),
+     _negative_gammacorrect_stage_fn(SUPERIA_XTRA400_CURVES, SUPERIA_XTRA400_REF_D, SUPERIA_XTRA400_SPLITGAUSS_FIT)),
 ]
 NEGATIVE_FILM_KEYS = [f[0] for f in NEGATIVE_FILMS]
 
@@ -1545,7 +1594,8 @@ def main():
         print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {len(COLOR_LOOKS)*2} LUTs")
         for look in COLOR_LOOKS:
             paper=PAPER_LADDER[look]
-            xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
+            paper_fit=PAPER_LADDER_FIT[look]
+            xfers=[build_print_cascade(stage_fn(li,paper,paper_fit)) for li in range(3)]
             for variant_label,use_hk in [("Classic",False),("Modern",True)]:
                 fname=f"{fileprefix}_{variant_label}_{look}.cube"
                 t1=time.time()

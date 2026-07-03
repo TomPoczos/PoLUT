@@ -182,6 +182,79 @@ def main():
                       f"D_floor={d_at_floor:.3f}  paper_Dmax_fit={dmax_paper_fit:.3f}  "
                       f"shortfall={dmax_paper_fit - d_at_floor:+.3f}  k_gamma_at_pivot={local_gamma(fparams, na0):.3f}")
 
+    # ---------------------------------------------------------------------
+    # Negative films (Portra 400 etc.) x PAPER_LADDER -- same treatment,
+    # increasing=True on both stages (density rises with exposure for a
+    # camera negative and for a real RA-4 print paper, unlike the reversal-
+    # film/direct-print-paper case above). Added after real-world use showed
+    # negative films (never audited against Jones's rule) running at a
+    # *higher* system gamma (~1.4-1.7 measured near grey) than the freshly-
+    # corrected reversal direct-print route (~1.0-1.1) -- backwards from the
+    # real photographic hierarchy, where reversal stock is the punchier
+    # material. Root cause, measured directly: negative films' own native
+    # gamma is correctly low (0.47-0.68, exactly the low-native-gamma design
+    # every color negative stock uses), but PAPER_LADDER's own real measured
+    # gammas are steep (2.5-4.3 across all 5 papers, including "ExtraSoft")
+    # -- steep enough that even the lowest-gamma negative film doesn't fully
+    # compensate.
+    # ---------------------------------------------------------------------
+    neg_films = {
+        "portra400": (gfl.PORTRA400_CURVES, gfl.PORTRA400_REF_D),
+        "ektar100": (gfl.EKTAR100_CURVES, gfl.EKTAR100_REF_D),
+        "gold200": (gfl.GOLD200_CURVES, gfl.GOLD200_REF_D),
+        "ultramax400": (gfl.ULTRAMAX400_CURVES, gfl.ULTRAMAX400_REF_D),
+        "superiareala": (gfl.SUPERIA_REALA_CURVES, gfl.SUPERIA_REALA_REF_D),
+        "superiaxtra400": (gfl.SUPERIA_XTRA400_CURVES, gfl.SUPERIA_XTRA400_REF_D),
+    }
+
+    print("\n=== Fit quality: negative films (3 layers each) ===")
+    neg_film_fits = {}
+    for fkey, (curves, refd) in neg_films.items():
+        neg_film_fits[fkey] = []
+        for li, curve in enumerate(curves):
+            params, r2, maxres = fit_curve(curve)
+            neg_film_fits[fkey].append(params)
+            print(f"{fkey:16s} L{li}  R2={r2:.5f}  max_resid={maxres:.4f}  "
+                  f"x0={params[0]:+.3f} d_lo={params[1]:.3f} d_hi={params[2]:.3f} "
+                  f"sig_lo={params[3]:.3f} sig_hi={params[4]:.3f}")
+
+    print("\n=== Fit quality: PAPER_LADDER papers (3 layers each) ===")
+    ladder_fits = {}
+    for look in gfl.COLOR_LOOKS:
+        paper = gfl.PAPER_LADDER[look]
+        ladder_fits[look] = []
+        for li, curve in enumerate(paper):
+            params, r2, maxres = fit_curve(curve)
+            ladder_fits[look].append(params)
+            print(f"{look:12s} L{li}  R2={r2:.5f}  max_resid={maxres:.4f}  "
+                  f"x0={params[0]:+.3f} d_lo={params[1]:.3f} d_hi={params[2]:.3f} "
+                  f"sig_lo={params[3]:.3f} sig_hi={params[4]:.3f}")
+
+    print("\n=== Corrected negative-film check: shortfall against paper's real (fitted) Dmax ===")
+    for fkey, (curves, refd) in neg_films.items():
+        for look in gfl.COLOR_LOOKS:
+            paper = gfl.PAPER_LADDER[look]
+            for li in range(3):
+                fparams = neg_film_fits[fkey][li]
+                pparams = ladder_fits[look][li]
+                xs0, ys0 = gfl._sc(curves[li])
+                na0 = gfl._find_anchor(xs0, ys0, refd[li], increasing=True,
+                                        start=gfl._detect_lead_noise_start(curves[li], True))
+                pxs, pys = gfl._sc(paper[li])
+                lhg = gfl._find_anchor(pxs, pys, gfl._grey_target_density(pys),
+                                        increasing=True, start=gfl._detect_lead_noise_start(paper[li], True))
+                downstream_gamma = local_gamma(pparams, lhg)
+                corrected = stretch_corrected_curve(fparams, na0, refd[li], downstream_gamma, target)
+                stages = [(corrected, True, 0, refd[li]),
+                          (paper[li], True, gfl._detect_lead_noise_start(paper[li], True), None)]
+                xfer = gfl.build_print_cascade(stages)
+                floor_v = xfer(gfl.GREY * (2**-20))  # deep scene shadow -> print black
+                ceil_v = xfer(gfl.GREY * (2**20))    # deep scene highlight -> print white
+                grey_check = xfer(gfl.GREY)
+                print(f"{fkey:16s} {look:12s} L{li}  grey={grey_check:.4f}  "
+                      f"black={floor_v:.4f}  white={ceil_v:.4f}  "
+                      f"k_gamma_at_pivot={local_gamma(fparams, na0):.3f}")
+
 
 if __name__ == "__main__":
     main()

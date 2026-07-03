@@ -48,15 +48,29 @@ threshold statistics near Dmin, dye/silver exhaustion near Dmax -- with no
 reason to share a width, and real emulsions are visibly not symmetric
 toe-to-shoulder.
 
+Also used, unchanged, to fit the 6 camera negative films (Portra 400, Ektar
+100, Gold 200, Ultramax 400, Superia Reala, Superia X-tra 400) and the 5
+`PAPER_LADDER` papers they print onto (`generate_film_looks.py`'s
+`NEGATIVE_FILMS`/`_negative_gammacorrect_stage_fn()`) -- added after
+real-world use showed negative films rendering *punchier* than the
+freshly-corrected reversal films, backwards from the real photographic
+hierarchy. Root cause, measured with this same tool: negative films' own
+native gamma is correctly low (0.47-0.68), but `PAPER_LADDER`'s own real
+gammas run steep (2.5-4.3 across all 5 papers) and had never been checked
+against Jones's rule. Same model, same mechanism, `increasing=True` on both
+stages instead of `False` (a camera negative and a real print paper both
+have density *rising* with exposure, unlike a reversal dye layer).
+
 ## What it does
 
 1. `fit_curve()` least-squares fits `split_gaussian_cdf` (via
-   `scipy.optimize.curve_fit`) to each of the 4 reversal films' and 3
-   direct-print papers' own real digitized curves (3 layers each, imported
-   directly from `generate_film_looks.py`). Fit quality is checked, not
-   assumed: R² and max residual are printed for every layer (all 21 layers
-   fit at R² > 0.998, max residual < 0.07 density units, as of the version
-   these constants were transcribed from).
+   `scipy.optimize.curve_fit`) to each reversal/negative film's and each
+   direct-print/`PAPER_LADDER` paper's own real digitized curves (3 layers
+   each, imported directly from `generate_film_looks.py`). Fit quality is
+   checked, not assumed: R² and max residual are printed for every layer
+   (all 21 reversal-side layers fit at R² > 0.998, max residual < 0.07
+   density units; all 33 negative-side layers at R² > 0.995, max residual
+   < 0.1, as of the version these constants were transcribed from).
 2. `local_gamma()` is the model's exact analytic derivative (a normal PDF --
    no finite-difference approximation).
 3. `stretch_corrected_curve()` rescales the fitted film model's exposure
@@ -101,4 +115,5 @@ uv run main.py
 Re-run this and re-transcribe the printed `*_SPLITGAUSS_FIT` constants into
 `generate_film_looks.py` if any of `VELVIA_CURVES`, `KODACHROME64_CURVES`,
 `PROVIA100F_CURVES`, `EKTACHROME100D_CURVES`, `RADIANCE_III_CURVES`,
-`ILFOCHROME_M_CURVES`, or `ILFOCHROME_P_CURVES` ever change.
+`ILFOCHROME_M_CURVES`, `ILFOCHROME_P_CURVES`, any of the 6
+`*_CURVES` in `NEGATIVE_FILMS`, or `PAPER_LADDER` ever change.
