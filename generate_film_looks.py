@@ -996,14 +996,14 @@ def density_midpoint(curve):
 # What this file does instead: apply Jones's own math directly, using only
 # real data -- and only where Jones's own theory actually claims validity.
 #
-# GAMMA_CORRECT_TARGET = 1.1, not 1.0. Jones's 1920 product rule targets
+# GAMMA_CORRECT_TARGET = 1.25, not 1.0. Jones's 1920 product rule targets
 # unity system gamma -- the mathematically correct target for *faithful*
 # reproduction, and the one real labs' own engineering (internegative gamma
 # x paper gamma ~= 1.0, see above) was built around. But unity system gamma
 # is the right target only for reproducing a *captured* image at the exact
-# viewing conditions of the original scene; a print is viewed under
-# different conditions (dimmer, smaller subtended angle, no local scene
-# adaptation) than the scene it depicts, and Bartleson & Breneman
+# viewing conditions of the original scene; any real viewing/display chain
+# is under different conditions (dimmer, smaller subtended angle, no local
+# scene adaptation) than the scene it depicts, and Bartleson & Breneman
 # ("Brightness Perception in Complex Fields," J. Opt. Soc. Am. 57, 1967 --
 # cited alongside Jones in the same tone-reproduction literature, e.g.
 # Lehmbeck & Urbach, "Basics for Tone Reproduction in Digital Imaging
@@ -1011,14 +1011,26 @@ def density_midpoint(curve):
 # during this research -- cited here via two real secondary sources saved
 # locally that carry the citation and the mechanism, papers/masking_research/
 # choi_bartleson_breneman_brightness_stevens_power_law.pdf and .../
-# roufs_global_brightness_contrast_perceptual_image_quality.pdf, the latter
-# an independent experimental confirmation) measured the system gamma humans
-# actually prefer for a reflection print viewed with a light/bright surround
-# (ordinary print or screen viewing) at approximately 1.1 -- versus ~1.5-1.6
-# for a dark-surround transparency/projection viewing. Since these are real
-# reflection prints (Radiance III, Ilfochrome), viewed the same way any
-# photograph is, 1.1 is the correct target for this viewing condition, not
-# the pure-fidelity 1.0.
+# roufs_global_brightness_contrast_perceptual_image_quality.pdf) found the
+# system gamma humans actually prefer depends on how dark the surround is
+# relative to the display: ~1.1 for a light/bright surround (an ordinary
+# reflection print in a lit room), ~1.5-1.6 for a dark-surround transparency/
+# projection viewing -- and, separately, a dedicated figure "for TV" (a
+# self-luminous display, moderately-dark/"dim" surround, the real category a
+# monitor viewed while photo-editing falls into) that Roufs, Koselka & van
+# Tongeren's own independent experiment reproduces almost exactly:
+# their own test rig was a slide (reversal-film) scanner feeding a monitor --
+# i.e. very close to this project's actual output path, a digitized film
+# image displayed on a screen -- and found "the optimal value for the
+# effective gamma is about 1.2-1.3 ... very near what Bartleson and Breneman
+# found for TV in 1967." This project's own output is a LUT that replaces a
+# raw processor's tone mapper entirely (see module docstring/README) --
+# i.e. the rendered image is *displayed on a monitor*, not printed and hung
+# on a wall under room light -- so the correct viewing-condition target is
+# this TV/monitor figure, not the light-surround reflection-print one:
+# GAMMA_CORRECT_TARGET = 1.25, the midpoint of Roufs et al.'s own reported
+# 1.2-1.3 range, corrected from an earlier, too-low 1.1 after real-world use
+# showed the reflection-print target rendering flat/washed-out on screen.
 #
 # TWO EARLIER VERSIONS of gamma_correct_curve() are documented here (not
 # just in git history) because both looked reasonable and both measurably
@@ -1139,7 +1151,7 @@ def density_midpoint(curve):
 # escape, not resolve it (same failure mode as INTERNEGATIVE_II_CURVES
 # against a real reversal original -- see above).
 # =========================================================================
-GAMMA_CORRECT_TARGET = 1.1
+GAMMA_CORRECT_TARGET = 1.25
 
 # Fitted split-normal-CDF parameters (x0, d_lo, d_hi, sigma_lo, sigma_hi) per
 # layer, produced by tools/gamma_correction_fit/main.py (`uv run main.py`)
