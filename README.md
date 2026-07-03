@@ -1,13 +1,14 @@
 ## Unapologeticly AI slop readme. Might find the time to rewrite it to a version that doesn't give you cancer sometime
 
-# Film Look LUTs — Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D
+# Film Look LUTs — Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D, Kodak Portra 400, Kodak Ektar 100, Kodak Gold 200, Kodak Ultramax 400, Fuji Superia Reala, Fuji Superia X-tra 400
 
 Physically grounded film emulation as .cube LUTs for darktable (or any software supporting 3D LUTs). These replace your tone mapper — they do the complete scene-to-display job that AgX, filmic, or sigmoid would otherwise handle.
 
 **Tri-X 400** — black and white. 6 contrast levels × 6 Wratten glass filters = 36 LUTs per variant.
 **Velvia 50, Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D** — color reversal (slide) film. Each has 5 looks (ExtraSoft/Soft/Normal/Punchy/ExtraPunchy), no filters (glass filters would alter a color film's rendering, which is the whole point of choosing one) = 10 LUTs per film (5 looks × classic/modern).
+**Kodak Portra 400, Kodak Ektar 100, Kodak Gold 200, Kodak Ultramax 400, Fuji Superia Reala, Fuji Superia X-tra 400** — color *negative* film. Same 5 looks / no-filters shape as the reversal films above (10 LUTs per film), but a shorter 2-stage print cascade — see "What these replicate" below for why.
 
-Every color-film look is produced purely by **choice of real print paper** — see "Choosing a print paper" below — not a synthetic contrast multiplier. Total: 112 LUTs.
+Every color-film look is produced purely by **choice of real print paper** — see "Choosing a print paper" below — not a synthetic contrast multiplier. Total: 172 LUTs.
 
 ## What these replicate
 
@@ -15,7 +16,9 @@ Each LUT encodes a complete photographic reproduction chain:
 
 **Tri-X**: scene light → Kodak Wratten glass filter (spectral transmission × film sensitivity) → Tri-X 400 negative (H&D characteristic curve at 7 min development) → Kodak Polymax Fine-Art enlarging paper (at a specific contrast grade) → print reflectance → display. This is the full negative-to-print darkroom process.
 
-**Velvia 50 / Kodachrome 64 / Fuji Provia 100F / Kodak Ektachrome 100D**: scene light → the reversal film's own H&D characteristic curve (3 independent dye layers) → a real duplicating internegative (EASTMAN Color Internegative II Film 5272/7272) → a real RA-4 print paper (see the paper ladder below) → print reflectance → display. All four are reversal (slide) films, not negatives, so none of them can go straight onto negative print paper — real darkroom labs got a *printable* (forgiving) result from a slide by first shooting a duplicating internegative from it, then printing that internegative like an ordinary negative. That's exactly what this cascade does. (An earlier version of this LUT set printed Velvia directly onto a reversal print paper, which is why some `Velvia50_*` files from before might look considerably more contrasty and hard to work with than the current ones — see "Honest limitations". An even earlier version briefly included color *negative* film — Portra 400, Kodak Gold 200, Ektar 100 — which was a dead end: negatives already print straight onto paper with no internegative stage, so they never used the pipeline this project actually built. Removed in favor of more reversal stocks that do.)
+**Velvia 50 / Kodachrome 64 / Fuji Provia 100F / Kodak Ektachrome 100D**: scene light → the reversal film's own H&D characteristic curve (3 independent dye layers) → a real duplicating internegative (EASTMAN Color Internegative II Film 5272/7272) → a real RA-4 print paper (see the paper ladder below) → print reflectance → display. All four are reversal (slide) films, not negatives, so none of them can go straight onto negative print paper — real darkroom labs got a *printable* (forgiving) result from a slide by first shooting a duplicating internegative from it, then printing that internegative like an ordinary negative. That's exactly what this cascade does. (An earlier version of this LUT set printed Velvia directly onto a reversal print paper, which is why some `Velvia50_*` files from before might look considerably more contrasty and hard to work with than the current ones — see "Honest limitations".)
+
+**Kodak Portra 400 / Kodak Ektar 100 / Kodak Gold 200 / Kodak Ultramax 400 / Fuji Superia Reala / Fuji Superia X-tra 400**: scene light → the negative's own H&D characteristic curve (3 independent dye layers) → the same real RA-4 print paper the reversal films use → print reflectance → display. These are genuine camera *negatives* — unlike the four reversal stocks above, a negative already prints straight onto paper (that's what negative film *is for*), so there's no internegative stage to route through. An earlier version of this project briefly included three of these same films (Portra 400, Kodak Gold 200, Ektar 100), folded into the reversal-film lineup, and removed them because they didn't exercise the internegative pipeline the reversal-film architecture exists to demonstrate. They're back now as a genuinely separate, shorter cascade (`NEGATIVE_FILMS`/`_negative_stage_fn()` in `generate_film_looks.py`) instead of being forced into the reversal shape — see "Choosing a print paper" for why the same 5-paper ladder works for negatives too.
 
 ## Quick start — darktable setup
 
@@ -25,7 +28,7 @@ Each LUT encodes a complete photographic reproduction chain:
 4. Load one .cube file.
 5. Use the **exposure** module to position middle grey. The LUT supplies the tonal *shape*; exposure decides where your scene sits on it. If the image looks too dark or too bright, that's an exposure placement issue — nudge it until a known mid-grey reads as mid-grey.
 
-That's it. Output is neutral B&W for Tri-X, full colour for the four color films.
+That's it. Output is neutral B&W for Tri-X, full colour for the ten color films.
 
 ## The files
 
@@ -73,6 +76,12 @@ No filters — these are all colour films; glass filters would alter their colou
 
 Same 5 looks, same paper ladder, for all four films — a film's own native contrast just sets where on that ladder "gentle" vs "punchy" lands (see "Choosing a print paper"). There's no `Hard` look for color, unlike Tri-X's 6-grade ladder — deliberately: the ladder stays inside the range of real, non-clipping paper contrasts rather than extrapolating past what real materials offer.
 
+### Kodak Portra 400, Kodak Ektar 100, Kodak Gold 200, Kodak Ultramax 400, Fuji Superia Reala, Fuji Superia X-tra 400
+
+Files are named the same way as the reversal films — `<Film>_<Classic|Modern>_<Look>.cube` — but each lives in its own flat, prefixed folder: `negative-portra-400/`, `negative-ektar-100/`, `negative-gold-200/`, `negative-ultramax-400/`, `negative-superia-reala/`, `negative-superia-xtra-400/`. The `negative-` prefix (rather than a `negative/` parent folder) keeps the folder listing flat instead of adding another directory level for six films.
+
+Same paper ladder, same 5 looks (ExtraSoft through ExtraPunchy), no filters, no `Hard` look — identical shape to the reversal films' file layout, just a shorter cascade underneath (see "What these replicate").
+
 ### Classic vs Modern
 
 **Classic** uses the geometric mean (density-space mixing, Tri-X only) or the real per-layer arithmetic mixing (color films) for colour-to-exposure conversion, and the real H&D characteristic curves throughout. No perceptual corrections. This is as close to the physical film process as a 3D LUT allows.
@@ -100,6 +109,8 @@ The current 5-paper ladder was picked from that measured output: full-range **sp
 | ExtraPunchy | Kodak Supra Endura | 0.919 | 0.919 | 0.916 | 0.914 |
 
 (Span, not gamma — see `tools/measure_paper_punch.py`'s own output for the full shadow/mid/highlight gamma bands per film.) Kodak Endura Premier and Fuji Crystal Archive Maxima both measure well but sit too close to their neighbors on every film to add a usefully distinct rung — the same reason the *previous* ladder left Pro PDII and Supra Endura out — so they're the two left unused now instead.
+
+**The same ladder is reused, unmodified, for the six negative films** (Portra 400, Ektar 100, Gold 200, Ultramax 400, Superia Reala, Superia X-tra 400) — not just because the papers are literally drawn from `film_paper_filter_data/papers/color/for_negatives/`, but checked directly: re-running the same span measurement through each negative film's own (shorter, 2-stage, no-internegative) cascade reproduces the identical ExtraSoft < Soft < Normal < Punchy < ExtraPunchy rank order on every one of the 6, with no crossovers. `tools/measure_paper_punch.py` only iterates `COLOR_FILMS` (the 4 reversal stocks) as shipped — it wasn't extended to loop `NEGATIVE_FILMS` too, so this was checked ad hoc rather than being a re-runnable part of that script; worth doing if paper data changes again.
 
 Normal and Punchy measure close together (span differs by 0.002-0.007) — a real, measured near-tie, not an oversight. They're kept as adjacent rungs anyway because they're the same two papers (Portra Endura, Fuji Crystal Archive DPII) the previous "Soft"/"Punchy" ladder already shipped, side-by-side comparison already confirmed they render as distinguishable in practice, and Normal-below-Punchy is exactly where the real measured data places them.
 
@@ -151,7 +162,11 @@ Five additional perceptual phenomena were evaluated for inclusion in the "modern
 
 **Every color-film look ladder is now real material data, not a synthetic contrast curve** — Velvia's grades used to be a parametric power-curve adjustment (no real multi-grade print data existed), and the one real-paper Velvia look that did exist (direct printing onto Kodak Ektachrome Radiance III) was structurally very contrasty, because printing a reversal film directly onto *any* reversal print paper compounds two already-high-contrast stages (confirmed against real Cibachrome/Ilfochrome and R-3 process accounts, not just this dataset). The fix was architectural, not a better parameter: real darkroom labs never printed slides directly either, for the same reason — they duplicated the slide onto an internegative first, which is a genuinely low-contrast material (measured γ≈0.527, digitized from EASTMAN Color Internegative II Film 5272/7272's real datasheet — see "Choosing a print paper"), then printed *that* like an ordinary negative. Two real print-paper candidates were tried and rejected for the old direct-print approach along the way: Ilfochrome Micrographic M/P (duplicating/microfilm stock, not pictorial paper, and its own gamma compounds with a reversal film's into an unusably contrasty, clipping result) and Kodak Dye Transfer (flagged by its own source library as "very experimental and unreliable," and its "for Slides" variant turned out to be a renamed copy of the unfinished Kodachrome curve, not independent data) — neither was fabricated data, both were real candidates that didn't hold up.
 
-**Only reversal (slide) film is included, on purpose**: an earlier version of this project briefly added three color negative films (Portra 400, Kodak Gold 200, Ektar 100). They were removed — negatives print straight onto paper with no internegative stage, so they never exercised the internegative pipeline that's the actual point of this project's color-film architecture. If negative film support returns, it belongs as a genuinely separate 2-stage cascade (the same shape `build_trix_cascade()` already uses), not folded into the reversal-film lineup.
+**Negative films are a shorter cascade than the reversal films, by design, not an oversight**: Portra 400 / Ektar 100 / Gold 200 / Ultramax 400 / Superia Reala / Superia X-tra 400 print straight onto the same real RA-4 paper the reversal films use, with no internegative stage — the same 2-stage shape `build_trix_cascade()` already uses for Tri-X, generalized in `NEGATIVE_FILMS`/`_negative_stage_fn()`. An earlier version of this project briefly added three of these same films folded into the reversal-film lineup and removed them because they didn't exercise the internegative pipeline that lineup exists to demonstrate; they're back now as their own separate lineup instead, which is the correct fix, not a reversal of that decision.
+
+**Kodak Portra 400 / Ektar 100 / Gold 200's own H&D and spectral-sensitivity curves were independently re-digitized from the real Kodak Alaris publication PDFs** (`E-4050`, `E-4046`, `E-7022` — see "Data provenance") as a cross-check against the community-sourced `spectral_film_lut` transcription already shipped, rather than trusting a single source uncritically. Per-layer gamma (contrast) matched within roughly 2-6% across all 9 (3 films × 3 layers) comparisons, and spectral peak wavelengths matched within about 5-20nm — good agreement for independent graph digitization, and specifically confirms that Portra 400, Ektar 100, and Gold 200 really do have quite similar per-layer gamma and spectral response to each other in real life (not a transcription artifact), which is why their rendered LUTs look closer to each other than to, say, Superia Reala's.
+
+**Fuji Superia X-tra 400's green-sensitive layer had one bad source sample dropped**: the raw `spectral_film_lut`-derived JSON had a single point at 565.28nm reading 1.0051 log-sensitivity, a steep dive-and-recovery between two otherwise-smooth neighbors — confirmed as a digitization error (not a real spectral feature) before excluding it; see the comment above `SUPERIA_XTRA400_SENS` in `generate_film_looks.py`.
 
 **Grain and halation**: spatial effects that a per-pixel LUT cannot represent. Use darktable's grain module and/or the Diffuse or Sharpen module with red-channel blend mode for halation simulation.
 
@@ -181,6 +196,8 @@ Five additional perceptual phenomena were evaluated for inclusion in the "modern
 
 **Velvia 50, Kodachrome 64, Fuji Provia 100F, Kodak Ektachrome 100D**: spectral sensitivity (3 dye layers) and characteristic curves (3 layers, reversal) from the published Fujifilm/Kodak datasheets.
 
+**Kodak Portra 400, Kodak Ektar 100, Kodak Gold 200, Kodak Ultramax 400, Fuji Superia Reala, Fuji Superia X-tra 400**: spectral sensitivity (3 dye layers) and characteristic curves (3 layers, negative) from `film_paper_filter_data/films/color/negative/*.json`, pooled from the same `spectral_film_lut` source as the reversal films above. Portra 400, Ektar 100, and Gold 200's curves were additionally cross-checked against the real Kodak Alaris publication PDFs — `E-4050` (Portra 400), `E-4046` (Ektar 100), `E-7022` (Gold 200), downloaded from Kodak Alaris's own site and kept in `papers/` — by independently re-digitizing the characteristic-curve and spectral-sensitivity charts straight from each PDF's vector drawing commands (the same technique `film_paper_filter_data/tools/curve_digitizer/` uses, extended to separate same-color, uncolored curve traces by position instead of by fill color, since these particular Kodak Alaris consumer/pro datasheets draw all three dye-layer curves in plain black rather than color-coding them). Per-layer gamma matched the shipped data within ~2-6%, spectral peaks within ~5-20nm — see "Honest limitations" for what that confirmed.
+
 **Polymax Fine-Art**: characteristic curves at contrast grades 0 through 5 from the published Kodak datasheet.
 
 **EASTMAN Color Internegative II Film 5272/7272**: spectral sensitivity and characteristic curve (3 layers), digitized directly from the real Kodak/Eastman datasheet TI1301 (`papers/kodak_internegative_ii_5272_TI1301.pdf`) via `film_paper_filter_data/tools/curve_digitizer/` — a purpose-built tool that reads the PDF's own vector drawing commands for each curve rather than tracing a rendered image, so extraction precision is limited only by the source document's own geometry, not by any rasterization DPI. See that tool's README for the extraction method (axis calibration from tick-label text positions, monotonicity enforcement via isotonic regression for the real material curve, Ramer-Douglas-Peucker simplification to a shape-preserving sparse point set).
@@ -194,14 +211,15 @@ Film and paper curves and spectral sensitivities not otherwise noted above were 
 ## Generating
 
 ```
-python generate_film_looks.py                                # 65^3, all 112 LUTs, Adobe RGB
+python generate_film_looks.py                                # 65^3, all 172 LUTs, Adobe RGB
 python generate_film_looks.py --size 33                       # faster, smaller files
 python generate_film_looks.py --only trix                      # Tri-X only (72 LUTs)
 python generate_film_looks.py --only velvia kodachrome64        # just these two (20 LUTs)
+python generate_film_looks.py --only negative-portra-400 negative-ektar-100  # just these two (20 LUTs)
 python generate_film_looks.py --colorspace pq2020                # Rec.2020 + PQ instead of Adobe RGB
 ```
 
-`--only` accepts any subset of `trix velvia kodachrome64 provia100f ektachrome100d`. Omit it for everything.
+`--only` accepts any subset of `trix velvia kodachrome64 provia100f ektachrome100d negative-portra-400 negative-ektar-100 negative-gold-200 negative-ultramax-400 negative-superia-reala negative-superia-xtra-400`. Omit it for everything.
 
 `--colorspace` accepts `adobergb` (default) or `pq2020` — see "Colour space options" below. It changes what the LUT expects as input/output, so match it to whatever you set as the lut3d module's application color space.
 
