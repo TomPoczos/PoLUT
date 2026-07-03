@@ -1,32 +1,41 @@
 #!/usr/bin/env python3
 """
 generate_film_looks.py — Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia
-100F and Kodak Ektachrome 100D film emulation LUTs
+100F, Kodak Ektachrome 100D, Kodak Portra 400, Kodak Ektar 100, Kodak Gold
+200 and Fuji Superia Reala film emulation LUTs
 
-Generates 6 folders of curated film-look LUTs that replace your tone mapper:
+Generates 10 folders of curated film-look LUTs that replace your tone mapper:
 
-  trix_classic/     — 36 LUTs (6 looks x 6 filters), pure film physics
-  trix_modern/      — 36 LUTs, adds Helmholtz-Kohlrausch perceptual correction
-  velvia/           — 10 LUTs (5 real-paper looks x classic/modern)
-  kodachrome64/     — 10 LUTs, same real-paper-cascade structure
-  provia100f/       — 10 LUTs, same real-paper-cascade structure
-  ektachrome100d/   — 10 LUTs, same real-paper-cascade structure
+  trix_classic/            — 36 LUTs (6 looks x 6 filters), pure film physics
+  trix_modern/              — 36 LUTs, adds Helmholtz-Kohlrausch perceptual correction
+  velvia/                   — 10 LUTs (5 real-paper looks x classic/modern)
+  kodachrome64/              — 10 LUTs, same real-paper-cascade structure
+  provia100f/                — 10 LUTs, same real-paper-cascade structure
+  ektachrome100d/            — 10 LUTs, same real-paper-cascade structure
+  negative-portra-400/       — 10 LUTs, same real-paper-cascade structure (no internegative)
+  negative-ektar-100/        — 10 LUTs, same real-paper-cascade structure (no internegative)
+  negative-gold-200/         — 10 LUTs, same real-paper-cascade structure (no internegative)
+  negative-superia-reala/    — 10 LUTs, same real-paper-cascade structure (no internegative)
 
-Total: 112 LUTs.
+Total: 152 LUTs.
 
-All four color films are reversal (slide) stocks. Each is printed through a
-real duplicating internegative (EASTMAN Color Internegative II Film
-5272/7272) and then a real RA-4 print paper -- the same cascade structure
-real darkroom labs used to get a printable result from a slide. Every look
-(ExtraSoft/Soft/Normal/Punchy/ExtraPunchy) is produced purely by choice of
-that print paper -- see PAPER_LADDER below -- not a synthetic contrast
-multiplier. See README.md for the full process writeup.
+The first four color films are reversal (slide) stocks. Each is printed
+through a real duplicating internegative (EASTMAN Color Internegative II
+Film 5272/7272) and then a real RA-4 print paper -- the same cascade
+structure real darkroom labs used to get a printable result from a slide.
+The last four are camera color *negatives*, printed straight onto that same
+real RA-4 paper with no internegative stage -- see NEGATIVE_FILMS. Every
+look (ExtraSoft/Soft/Normal/Punchy/ExtraPunchy) across all eight color films
+is produced purely by choice of that print paper -- see PAPER_LADDER below
+-- not a synthetic contrast multiplier. See README.md for the full process
+writeup.
 
 Usage:
   python generate_film_looks.py                            # 65^3 default, everything
   python generate_film_looks.py --size 33                  # faster, smaller
   python generate_film_looks.py --only trix                 # just Tri-X
   python generate_film_looks.py --only velvia kodachrome64   # just these two
+  python generate_film_looks.py --only negative-portra-400 negative-ektar-100  # just these two
   python generate_film_looks.py --colorspace pq2020          # Rec.2020 + PQ instead of Adobe RGB
   python generate_film_looks.py --help
 """
@@ -400,6 +409,74 @@ EKTACHROME100D_CURVES = [
 {-2.7798:3.2106,-2.6443:3.2083,-2.5027:3.1863,-2.398:3.1532,-2.3094:3.1028,-2.1973:3.0302,-2.1087:2.9527,-2.0225:2.8481,-1.908:2.6943,-1.8133:2.5527,-1.668:2.3004,-1.4231:1.8757,-1.2483:1.5864,-1.0415:1.254,-0.8224:0.9525,-0.5823:0.6941,-0.3718:0.5022,-0.2142:0.3853,-0.1009:0.3177,0.0186:0.255},
 {-2.7784:3.6098,-2.6935:3.6049,-2.5703:3.5804,-2.4595:3.5424,-2.3314:3.4686,-2.1948:3.3653,-2.0778:3.2115,-1.935:2.9727,-1.8267:2.7498,-1.6434:2.3546,-1.4563:1.9187,-1.3492:1.691,-1.2163:1.4324,-1.0957:1.2232,-0.9406:0.9955,-0.7892:0.7924,-0.6279:0.6201,-0.4691:0.4688,-0.3324:0.3704,-0.1674:0.2856,0.0161:0.2168},
 {-2.7685:3.8081,-2.638:3.7713,-2.5309:3.7185,-2.4201:3.6447,-2.3265:3.5598,-2.2551:3.465,-2.1332:3.2853,-1.9154:2.8421,-1.7259:2.3927,-1.524:1.9002,-1.3234:1.4693,-1.1487:1.1738,-0.9394:0.8661,-0.7757:0.6729,-0.5971:0.4859,-0.4223:0.3555,-0.2438:0.2646,0.0148:0.207},
+]
+
+# =========================================================================
+# Film data — Kodak Portra 400, Kodak Ektar 100, Kodak Gold 200, Fuji
+# Superia Reala (camera color *negative* stocks, 3 dye layers each, same
+# [red/cyan, green/magenta, blue/yellow] layer order as VELVIA_SENS/
+# VELVIA_CURVES -- confirmed against each film's raw source JSON directly
+# (film_paper_filter_data/films/color/negative/*.json, same
+# spectral_film_lut-derived pool the reversal films above came from, Status
+# M density, exposure_base 10 i.e. log10 H matching every other curve dict
+# in this file) by checking each layer's own peak sensitivity wavelength,
+# not assumed. Unlike every reversal film above, density here *rises* with
+# exposure (increasing=True), the same direction as TRIX_DEV7 and every
+# PAPER_LADDER paper -- these are genuine camera negatives, not reversal
+# (slide) stock, so they print straight onto a real print paper with a
+# 2-stage cascade (build_negative_cascade() below), never through
+# INTERNEGATIVE_II_CURVES -- see the COLOR_FILMS-vs-negative-films split in
+# main() and CLAUDE.md's note on why negative-film support must stay a
+# separate lineup rather than folding into COLOR_FILMS.
+#
+# Two of the twelve digitized layers have a single leading Dmin-plateau
+# digitization-noise sample (EKTAR100_CURVES layer 2, SUPERIA_REALA_CURVES
+# layer 2) -- the same kind of noise Kodak Supra Endura and Fuji Provia
+# 100F needed _detect_lead_noise_start() for; handled automatically the
+# same way, no hand-tuned start index needed here either.
+# =========================================================================
+PORTRA400_SENS = [
+{492.535:0.4215,498.661:0.5118,504.788:0.5997,511.297:0.69,518.955:0.7689,527.379:0.8143,535.802:0.8003,544.226:0.7789,551.118:0.8224,555.713:0.917,559.542:1.0145,563.37:1.1103,566.817:1.2003,569.88:1.2958,572.56:1.3949,574.857:1.4897,577.155:1.5872,579.452:1.6779,582.132:1.7761,585.196:1.8627,588.259:1.969,592.853:2.07,599.363:2.1563,606.255:2.2479,613.913:2.3316,622.336:2.387,630.76:2.4032,639.184:2.4221,645.31:2.532,651.436:2.6026,657.945:2.5492,661.391:2.4307,662.157:2.3508,663.689:2.2574,665.22:2.1376,666.752:2.0076,668.284:1.8735,669.815:1.7344,671.347:1.5892,672.878:1.442,674.41:1.2846,675.941:1.1201,677.473:0.9576,679.005:0.8046,679.77:0.7166},
+{390.685:1.2694,393.748:1.3658,396.812:1.4633,402.555:1.548,410.979:1.5266,419.402:1.4613,427.826:1.4033,436.25:1.3527,444.673:1.3243,453.097:1.3254,461.521:1.3453,469.179:1.3868,474.539:1.4873,478.368:1.5888,481.814:1.6816,484.877:1.7608,488.706:1.8512,493.684:1.9481,500.576:2.0414,509:2.113,517.423:2.1857,525.847:2.2674,533.122:2.3544,539.631:2.4429,547.289:2.5214,555.713:2.51,563.753:2.4284,571.028:2.3413,576.772:2.2635,580.218:2.1721,582.515:2.0651,584.94:1.9366,585.578:1.8404,587.876:1.707,589.407:1.5943,590.939:1.4724,592.471:1.3475,594.002:1.2115,595.534:1.0693,597.065:0.917,598.597:0.7809,599.745:0.6895},
+{380.347:1.7591,382.644:1.8593,384.942:1.9676,387.239:2.0705,389.537:2.1721,391.834:2.2736,394.131:2.3711,396.429:2.4578,399.875:2.5559,406.384:2.6037,414.808:2.5805,423.231:2.5576,431.655:2.5646,440.079:2.5524,448.502:2.5162,456.926:2.521,465.35:2.5738,471.859:2.5532,475.688:2.4645,478.368:2.3833,480.665:2.2885,482.58:2.1761,483.728:2.0726,485.26:1.967,487.43:1.8505,488.323:1.751,490.161:1.6457,492.918:1.5168,495.215:1.4139,497.513:1.3056,499.81:1.2054,502.108:1.1038,504.405:1.0104,506.702:0.917,509:0.8168,512.139:0.6807,515.126:0.523,517.423:0.4052,519.721:0.3037},
+]
+PORTRA400_CURVES = [
+{-3.386:0.2172,-3.253:0.2218,-3.119:0.2264,-2.986:0.2316,-2.853:0.2406,-2.72:0.2625,-2.587:0.3031,-2.453:0.3594,-2.32:0.4267,-2.187:0.4964,-2.054:0.5643,-1.92:0.6331,-1.787:0.7024,-1.654:0.7732,-1.521:0.8425,-1.388:0.9144,-1.254:0.9867,-1.121:1.0587,-0.988:1.1318,-0.855:1.2052,-0.722:1.2794,-0.588:1.3545,-0.455:1.4291,-0.322:1.505,-0.189:1.5809,-0.055:1.6564,0.078:1.7327,0.211:1.8094,0.344:1.8866,0.477:1.9643,0.556:2.0108},
+{-3.386:0.6434,-3.253:0.6482,-3.119:0.6523,-2.986:0.6584,-2.853:0.669,-2.72:0.6951,-2.587:0.7393,-2.453:0.7995,-2.32:0.8708,-2.187:0.9463,-2.054:1.0211,-1.92:1.0951,-1.787:1.1698,-1.654:1.244,-1.521:1.3178,-1.388:1.3912,-1.254:1.4656,-1.121:1.5398,-0.988:1.613,-0.855:1.6864,-0.722:1.7592,-0.588:1.833,-0.455:1.9066,-0.322:1.9802,-0.189:2.0519,-0.055:2.1234,0.078:2.1966,0.211:2.2695,0.344:2.3417,0.477:2.4147,0.556:2.4578},
+{-3.377:0.866,-3.244:0.8704,-3.111:0.8762,-2.978:0.8923,-2.845:0.9244,-2.711:0.9788,-2.578:1.0495,-2.445:1.1295,-2.312:1.2129,-2.179:1.2959,-2.045:1.3797,-1.912:1.4633,-1.779:1.5474,-1.646:1.6318,-1.512:1.716,-1.379:1.8007,-1.246:1.8849,-1.113:1.9702,-0.98:2.0554,-0.846:2.1409,-0.713:2.2264,-0.58:2.3117,-0.447:2.3971,-0.314:2.4824,-0.18:2.5685,-0.047:2.6552,0.086:2.7413,0.219:2.8275,0.352:2.9142,0.486:3.0015,0.561:3.0499},
+]
+
+EKTAR100_SENS = [
+{554.759:0.1914,559.38:0.2841,562.257:0.3312,565.135:0.3588,569.32:0.3485,572.546:0.4793,581.178:1.1263,586.323:1.4135,590.596:1.5207,596.438:1.6176,603.413:1.7304,606.814:1.7595,610.65:1.7657,614.923:1.7588,626.52:1.8107,631.316:1.8418,635.85:1.9062,645.267:1.994,648.667:2.0397,653.027:2.0536,656.428:2.0231,663.926:1.8183,667.85:1.5795,681.801:1.0017,687.992:0.8045,692.526:0.4966,694.968:0.2993},
+{394.93:0.8391,399.639:0.9346,404.435:0.9692,408.882:0.9567,415.857:0.9118,419.955:0.8599,427.192:0.7976,432.25:0.7491,437.133:0.6813,443.062:0.619,450.299:0.6149,455.531:0.6073,464.686:0.6107,468.61:0.6038,473.406:0.6523,478.55:0.7893,485.962:1.1007,493.897:1.2854,501.744:1.3941,510.551:1.4612,518.224:1.5436,527.815:1.6716,535.837:1.7553,540.546:1.7927,544.208:1.8356,549.701:1.8217,555.543:1.7754,559.729:1.7788,564.263:1.7539,567.227:1.7076,570.889:1.657,574.203:1.6418,578.039:1.5138,582.486:1.1643,587.021:0.6869,590.072:0.3768},
+{379.584:1.0931,385.339:1.3235,390.135:1.5622,394.494:1.7802,399.029:1.9207,403.388:2.0072,406.44:2.0383,410.8:2.0459,415.857:2.0293,419.083:2.01,423.705:2.0224,430.68:2.0432,435.912:2.0639,438.877:2.084,442.539:2.0681,447.77:2.0266,453.525:2.0176,460.85:2.0702,465.558:2.1193,468.348:2.1491,471.662:2.1401,474.888:2.0895,476.894:1.9864,483.608:1.4619,489.275:0.8529,494.856:0.3561},
+]
+EKTAR100_CURVES = [
+{-2.837:0.2103,-2.424:0.225,-2.281:0.2364,-2.123:0.2634,-2.021:0.2911,-1.929:0.3246,-1.748:0.4087,-1.495:0.5386,-0.965:0.8546,-0.341:1.2091,0.306:1.5545,0.837:1.8052,1.159:1.9343},
+{-2.838:0.6366,-2.426:0.6431,-2.255:0.6611,-2.107:0.6905,-1.974:0.7313,-1.78:0.8252,-1.341:1.0866,-0.519:1.5643,0.103:1.9073,0.705:2.2029,1.153:2.4104},
+{-2.835:0.8473,-2.725:0.8612,-2.623:0.871,-2.5:0.8702,-2.368:0.8832,-2.191:0.9249,-1.968:1.0384,-1.784:1.1552,-1.556:1.2989,-1.472:1.365,-1.385:1.4238,-1.085:1.6182,-0.545:1.9726,-0.1:2.2756,0.333:2.5394,0.773:2.7991,1.158:3.067},
+]
+
+GOLD200_SENS = [
+{391.296:0.3886,394.173:0.4731,400.525:0.6223,408.557:0.5588,416.468:0.454,423.66:0.3463,430.852:0.2366,439.003:0.1269,447.803:0.0405,464.518:0.0,485.53:0.0101,492.703:0.1146,515.718:0.3548,525.786:0.4338,535.855:0.5001,542.808:0.5554,558.87:0.7548,567.26:0.8513,577.089:1.0979,580.206:1.1551,590.035:1.3832,594.35:1.4501,608.734:1.6179,617.365:1.7289,625.755:1.8296,632.708:1.9204,642.057:2.0959,649.618:2.1978,657.88:2.1908,662.434:2.0966,664.832:1.9187,666.803:1.804,669.094:1.6801,671.118:1.5661,673.462:1.453,676.034:1.3311,678.497:1.2125,682.332:1.1002,687.367:0.9018,689.764:0.8217},
+{380.987:0.5871,384.823:0.7093,388.179:0.8258,391.536:0.9299,399.57:1.2203,408.796:1.2238,418.865:1.1395,426.537:1.0691,441.4:0.9324,461.058:0.9208,469.209:0.9307,478.079:1.107,491.984:1.5168,494.621:1.5729,510.443:1.7562,519.314:1.8572,525.067:1.9323,534.248:2.093,541.129:2.1926,549.522:2.2363,558.39:2.1802,564.863:2.0739,570.617:1.8932,574.452:1.7795,577.329:1.6681,579.213:1.5606,581.036:1.4334,585.24:1.1066,587.398:0.9079,588.871:0.7935,590.72:0.6665,592.227:0.5461,594.111:0.417,595.857:0.3004},
+{371.158:0.9047,375.569:1.0102,379.07:1.1589,382.426:1.2786,385.542:1.3904,388.419:1.4992,391.775:1.6148,393.813:1.7173,396.536:1.821,410.235:2.1099,420.304:2.0915,430.373:2.0943,439.482:2.1499,459.38:2.1796,468.73:2.3224,475.682:2.2364,479.218:2.1053,479.278:2.0478,481.915:1.8552,483.388:1.7315,484.312:1.6084,485.331:1.4935,487.429:1.1687,488.748:1.091,491.265:0.8654,492.763:0.756,495.041:0.6473,505.649:0.1463,509.005:0.0556},
+]
+GOLD200_CURVES = [
+{-2.902:0.256,-2.773:0.2617,-2.644:0.271,-2.515:0.2885,-2.385:0.3159,-2.256:0.355,-2.127:0.4047,-1.997:0.4638,-1.868:0.5297,-1.739:0.599,-1.609:0.6683,-1.48:0.7379,-1.351:0.8072,-1.222:0.8767,-1.092:0.9465,-0.963:1.017,-0.834:1.0881,-0.704:1.1592,-0.575:1.2308,-0.446:1.3028,-0.316:1.3751,-0.187:1.4475,-0.058:1.5176,0.072:1.5769,0.201:1.6278,0.33:1.6711,0.46:1.7109,0.589:1.7491,0.718:1.7876,0.823:1.8196},
+{-2.894:0.6617,-2.765:0.6685,-2.635:0.6816,-2.506:0.7062,-2.377:0.7421,-2.248:0.7898,-2.118:0.8461,-1.989:0.9075,-1.86:0.9757,-1.73:1.0488,-1.601:1.1224,-1.472:1.1963,-1.342:1.2701,-1.213:1.3434,-1.084:1.4173,-0.955:1.4911,-0.825:1.5643,-0.696:1.6377,-0.567:1.7108,-0.437:1.7833,-0.308:1.8557,-0.179:1.927,-0.049:1.9953,0.08:2.0566,0.209:2.1069,0.339:2.1484,0.468:2.1865,0.597:2.224,0.727:2.2626,0.827:2.2923},
+{-2.677:0.9637,-2.548:0.9757,-2.419:1.0049,-2.289:1.0472,-2.16:1.1019,-2.031:1.1688,-1.901:1.2465,-1.772:1.3244,-1.643:1.4029,-1.514:1.4837,-1.384:1.5686,-1.255:1.6616,-1.125:1.7488,-0.996:1.8158,-0.867:1.8863,-0.738:1.9623,-0.608:2.0427,-0.479:2.1247,-0.35:2.2063,-0.22:2.2874,-0.091:2.3656,0.038:2.4381,0.168:2.4995,0.297:2.5496,0.426:2.5942,0.555:2.6371,0.685:2.6821,0.806:2.724},
+]
+
+SUPERIA_REALA_SENS = [
+{557.705:1.0543,560.761:1.1395,563.582:1.2203,566.403:1.3003,569.224:1.3799,572.044:1.4591,574.16:1.5099,579.86:1.6827,583.563:1.7667,586.854:1.8502,590.144:1.9252,596.726:2.0748,609.89:2.2588,617.177:2.3195,624.699:2.356,632.221:2.3596,639.274:2.3104,644.445:2.2348,647.971:2.1579,651.027:2.0782,654.553:1.9259,656.621:1.8266,657.844:1.7444,659.066:1.6578,660.429:1.5659,662.008:1.4675,663.485:1.3767,665.013:1.3062,667.011:1.224,669.362:1.1379},
+{465.324:0.7422,467.675:0.8273,469.791:0.9134,471.671:0.9897,473.551:1.0647,475.667:1.1448,477.783:1.2274,480.133:1.3168,482.484:1.4052,484.835:1.4923,487.185:1.5793,489.536:1.6634,492.122:1.7511,496.823:1.919,499.174:1.9931,505.05:2.1586,508.577:2.2416,513.513:2.3197,520.33:2.3786,527.852:2.4048,535.374:2.3927,542.896:2.346,549.713:2.2795,555.355:2.2067,560.056:2.1315,564.287:2.053,568.048:1.9573,570.869:1.8786,572.985:1.8015,574.865:1.7235,576.276:1.6727,579.802:1.4927,581.917:1.3948,583.798:1.3026,585.678:1.211,587.794:1.1262,589.909:1.075},
+{390.573:2.2987,394.569:2.3832,398.565:2.4476,406.087:2.5316,413.61:2.5746,421.132:2.5737,428.654:2.5554,436.176:2.5495,443.698:2.5688,451.22:2.6158,458.742:2.6494,466.264:2.6566,473.551:2.6178,478.723:2.5369,481.544:2.4584,483.659:2.3803,485.54:2.2951,487.421:2.2011,489.183:2.0995,490.241:2.0498,492.592:1.9375,496.823:1.7322,498.704:1.6821,505.286:1.4201,507.871:1.3371,510.222:1.2553,512.573:1.173,514.923:1.0988},
+]
+SUPERIA_REALA_CURVES = [
+{-3.581:0.2932,-3.462:0.2932,-3.337:0.3057,-3.216:0.3128,-3.094:0.321,-2.972:0.3324,-2.85:0.3457,-2.728:0.3637,-2.607:0.3831,-2.485:0.4002,-2.363:0.4233,-2.241:0.4508,-1.998:0.5226,-1.876:0.5771,-1.754:0.645,-1.632:0.7161,-1.51:0.7881,-1.389:0.8719,-1.145:1.0305,-0.901:1.1978,-0.78:1.2804,-0.658:1.362,-0.534:1.4404,-0.414:1.5216,-0.292:1.5994,-0.171:1.6858,-0.046:1.7653,0.073:1.8434,0.317:2.0},
+{-3.57:0.5039,-3.448:0.5076,-3.326:0.5128,-3.204:0.5221,-2.961:0.5548,-2.839:0.5813,-2.717:0.6081,-2.595:0.6344,-2.473:0.6632,-2.352:0.6971,-2.23:0.7403,-2.108:0.7928,-1.986:0.856,-1.864:0.9166,-1.742:0.9911,-1.621:1.0642,-1.499:1.1474,-1.377:1.2288,-1.255:1.3095,-1.133:1.3906,-1.012:1.4712,-0.89:1.5505,-0.768:1.6356,-0.646:1.7152,-0.523:1.7916,-0.403:1.871,-0.281:1.9566,-0.159:2.0285,-0.037:2.1122,0.085:2.193,0.206:2.2745,0.287:2.3267},
+{-3.581:0.9752,-3.459:0.9749,-3.337:0.9752,-3.216:0.979,-3.094:0.9812,-2.972:0.9851,-2.85:0.992,-2.728:1.0041,-2.607:1.0171,-2.485:1.0403,-2.363:1.0765,-2.241:1.1274,-2.119:1.1819,-1.998:1.2369,-1.876:1.2975,-1.754:1.3623,-1.632:1.4343,-1.51:1.5087,-1.389:1.5878,-1.267:1.67,-1.145:1.7504,-1.022:1.8307,-0.901:1.913,-0.78:1.9915,-0.658:2.0704,-0.534:2.1525,-0.414:2.2394,-0.292:2.3239,-0.171:2.4125,-0.049:2.4946,0.073:2.5768,0.195:2.6601,0.276:2.7147},
 ]
 
 # =========================================================================
@@ -852,17 +929,65 @@ COLOR_FILMS = [
 ]
 COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 
+# =========================================================================
+# Camera color *negative* films -- Kodak Portra 400, Kodak Ektar 100, Kodak
+# Gold 200, Fuji Superia Reala. Unlike COLOR_FILMS above, these print
+# straight onto a real paper with a 2-stage cascade (own curve -> paper),
+# the same shape build_trix_cascade() uses -- never through
+# INTERNEGATIVE_II_CURVES, since these are already camera negatives, not
+# reversal originals needing duplication. Kept as a genuinely separate
+# lineup/loop from COLOR_FILMS per CLAUDE.md (folding negative and reversal
+# films into one list was tried once and reverted).
+#
+# Reuses PAPER_LADDER/COLOR_LOOKS -- the same 5 real RA-4 papers, which
+# live in film_paper_filter_data/papers/color/for_negatives/ and are
+# already literally "for negatives," not repurposed reversal-print stock.
+#
+# ref_d: each film's own stage uses density_midpoint() on its own curve,
+# same fallback and same justification as TRIX_DEV7_REF_D -- none of the
+# four source JSONs (film_paper_filter_data/films/color/negative/*.json)
+# carry a populated `lad` field (checked directly: all four are None), so
+# no published aim density exists to prefer over it.
+# =========================================================================
+PORTRA400_REF_D = [density_midpoint(c) for c in PORTRA400_CURVES]
+EKTAR100_REF_D = [density_midpoint(c) for c in EKTAR100_CURVES]
+GOLD200_REF_D = [density_midpoint(c) for c in GOLD200_CURVES]
+SUPERIA_REALA_REF_D = [density_midpoint(c) for c in SUPERIA_REALA_CURVES]
+
+def _negative_stage_fn(film_curves, film_ref_d):
+    """Builds a NEGATIVE_FILMS stage-list function for a 3-layer camera
+    negative: its own curve -> whichever paper is passed in at call time.
+    No internegative stage -- see the module comment above. Mirrors
+    _reversal_stage_fn()'s shape but with increasing=True (density rises
+    with exposure, like TRIX_DEV7 and every PAPER_LADDER paper) on both
+    stages instead of False on the first."""
+    return lambda li, paper: [
+        (film_curves[li], True, _detect_lead_noise_start(film_curves[li], True), film_ref_d[li]),
+        (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
+
+NEGATIVE_FILMS = [
+    ("negative-portra-400", "Portra400", "Kodak Portra 400", PORTRA400_SENS,
+     _negative_stage_fn(PORTRA400_CURVES, PORTRA400_REF_D)),
+    ("negative-ektar-100", "Ektar100", "Kodak Ektar 100", EKTAR100_SENS,
+     _negative_stage_fn(EKTAR100_CURVES, EKTAR100_REF_D)),
+    ("negative-gold-200", "Gold200", "Kodak Gold 200", GOLD200_SENS,
+     _negative_stage_fn(GOLD200_CURVES, GOLD200_REF_D)),
+    ("negative-superia-reala", "SuperiaReala", "Fuji Superia Reala", SUPERIA_REALA_SENS,
+     _negative_stage_fn(SUPERIA_REALA_CURVES, SUPERIA_REALA_REF_D)),
+]
+NEGATIVE_FILM_KEYS = [f[0] for f in NEGATIVE_FILMS]
+
 def main():
     here=os.path.dirname(os.path.abspath(__file__))
     p=argparse.ArgumentParser(description="Generate Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia 100F and Kodak Ektachrome 100D film emulation LUTs.")
     p.add_argument('--size',type=int,default=65,help='LUT grid N (N^3). Default 65.')
     p.add_argument('--output',default=here)
-    p.add_argument('--only',nargs='+',choices=['trix']+COLOR_FILM_KEYS,help='Generate only these film(s). Default: all.')
+    p.add_argument('--only',nargs='+',choices=['trix']+COLOR_FILM_KEYS+NEGATIVE_FILM_KEYS,help='Generate only these film(s). Default: all.')
     p.add_argument('--colorspace',choices=list(COLORSPACES),default='adobergb',
                     help="LUT module application color space: 'adobergb' (default) or 'pq2020' (Rec.2020 primaries + SMPTE ST 2084 PQ).")
     args=p.parse_args()
     if not 9<=args.size<=129: p.error("--size 9..129")
-    only=set(args.only) if args.only else {'trix',*COLOR_FILM_KEYS}
+    only=set(args.only) if args.only else {'trix',*COLOR_FILM_KEYS,*NEGATIVE_FILM_KEYS}
     cs=COLORSPACES[args.colorspace]
 
     t0=time.time(); total=0
@@ -887,6 +1012,28 @@ def main():
     # --- Color films: Velvia 50, Kodachrome 64, Provia 100F, Ektachrome 100D ---
     # Every look is a real paper choice (PAPER_LADDER), no synthetic gamma.
     for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
+        if key not in only: continue
+        lw=layer_weights(sens,ssf=cs["ssf"])
+        outdir=os.path.join(args.output,key)
+        os.makedirs(outdir,exist_ok=True)
+        print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {len(COLOR_LOOKS)*2} LUTs")
+        for look in COLOR_LOOKS:
+            paper=PAPER_LADDER[look]
+            xfers=[build_print_cascade(stage_fn(li,paper)) for li in range(3)]
+            for variant_label,use_hk in [("Classic",False),("Modern",True)]:
+                fname=f"{fileprefix}_{variant_label}_{look}.cube"
+                t1=time.time()
+                write_color_lut(os.path.join(outdir,fname),
+                                f"{dispname} {variant_label} {look}",lw,xfers,args.size,use_hk,cs=cs)
+                total+=1
+                print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
+
+    # --- Negative films: Portra 400, Ektar 100, Gold 200, Superia Reala ---
+    # Same PAPER_LADDER/COLOR_LOOKS as the reversal films, but a 2-stage
+    # own-curve->paper cascade (no internegative) via NEGATIVE_FILMS -- kept
+    # as a separate lineup/loop from COLOR_FILMS on purpose, see that
+    # constant's own comment.
+    for key,fileprefix,dispname,sens,stage_fn in NEGATIVE_FILMS:
         if key not in only: continue
         lw=layer_weights(sens,ssf=cs["ssf"])
         outdir=os.path.join(args.output,key)
