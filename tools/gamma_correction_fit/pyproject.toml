@@ -1,0 +1,9 @@
+[project]
+name = "gamma-correction-fit"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.0",
+    "scipy>=1.18.0",
+]
