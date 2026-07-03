@@ -996,7 +996,7 @@ def density_midpoint(curve):
 # What this file does instead: apply Jones's own math directly, using only
 # real data -- and only where Jones's own theory actually claims validity.
 #
-# GAMMA_CORRECT_TARGET = 1.25, not 1.0. Jones's 1920 product rule targets
+# GAMMA_CORRECT_TARGET default 1.35, not 1.0. Jones's 1920 product rule targets
 # unity system gamma -- the mathematically correct target for *faithful*
 # reproduction, and the one real labs' own engineering (internegative gamma
 # x paper gamma ~= 1.0, see above) was built around. But unity system gamma
@@ -1027,10 +1027,19 @@ def density_midpoint(curve):
 # raw processor's tone mapper entirely (see module docstring/README) --
 # i.e. the rendered image is *displayed on a monitor*, not printed and hung
 # on a wall under room light -- so the correct viewing-condition target is
-# this TV/monitor figure, not the light-surround reflection-print one:
-# GAMMA_CORRECT_TARGET = 1.25, the midpoint of Roufs et al.'s own reported
-# 1.2-1.3 range, corrected from an earlier, too-low 1.1 after real-world use
-# showed the reflection-print target rendering flat/washed-out on screen.
+# this TV/monitor figure, not the light-surround reflection-print one. The
+# module default was raised to 1.25 (the midpoint of Roufs et al.'s own
+# reported 1.2-1.3 range) after real-world use showed the reflection-print
+# target (1.1) rendering flat/washed-out on screen -- and then, after
+# real-world use showed 1.25 itself still not enough punch, exposed as a
+# tunable via --gamma (default 1.35, still inside the cited light-surround-
+# to-dark-surround real range of ~1.1-1.6, but past the specific 1.2-1.3 TV
+# figure) rather than re-deriving a single "more correct" fixed constant a
+# third time -- see --gamma's own help text for the citations. Every call
+# site reads the *current* value of this module global at call time (not a
+# stale def-time-bound default -- see gamma_correct_curve()'s own
+# `target=None` handling), so main() can override it from args.gamma before
+# any LUT is built.
 #
 # TWO EARLIER VERSIONS of gamma_correct_curve() are documented here (not
 # just in git history) because both looked reasonable and both measurably
@@ -1151,7 +1160,7 @@ def density_midpoint(curve):
 # escape, not resolve it (same failure mode as INTERNEGATIVE_II_CURVES
 # against a real reversal original -- see above).
 # =========================================================================
-GAMMA_CORRECT_TARGET = 1.25
+GAMMA_CORRECT_TARGET = 1.35  # overridable via --gamma; see comment block above
 
 # Fitted split-normal-CDF parameters (x0, d_lo, d_hi, sigma_lo, sigma_hi) per
 # layer, produced by tools/gamma_correction_fit/main.py (`uv run main.py`)
@@ -1199,7 +1208,7 @@ def _split_gauss_local_gamma(params, x):
     sigma = sigma_lo if x < x0 else sigma_hi
     return abs((d_hi - d_lo) * _norm_pdf((x - x0) / sigma) / sigma)
 
-def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=GAMMA_CORRECT_TARGET, n_samples=61):
+def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=None, n_samples=61):
     """Build the Jones-corrected reversal-film curve from its fitted split-
     normal-CDF model (`film_params`, one of the *_SPLITGAUSS_FIT rows above)
     -- see the GAMMA_CORRECT_TARGET block for the full physical/mathematical
@@ -1225,6 +1234,8 @@ def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=
     always correct here -- `_detect_lead_noise_start()` doesn't need to run
     on it, same as the straight-line version this replaced.
     """
+    if target is None:
+        target = GAMMA_CORRECT_TARGET  # live lookup, not a def-time-bound default -- see --gamma
     x0, d_lo, d_hi, sigma_lo, sigma_hi = film_params
     k = target / (downstream_gamma * _split_gauss_local_gamma(film_params, pivot_x))
     lo = x0 - 8 * sigma_lo
@@ -1525,6 +1536,7 @@ NEGATIVE_FILMS = [
 NEGATIVE_FILM_KEYS = [f[0] for f in NEGATIVE_FILMS]
 
 def main():
+    global GAMMA_CORRECT_TARGET
     here=os.path.dirname(os.path.abspath(__file__))
     p=argparse.ArgumentParser(description="Generate Tri-X 400, Velvia 50, Kodachrome 64, Fuji Provia 100F and Kodak Ektachrome 100D film emulation LUTs.")
     p.add_argument('--size',type=int,default=65,help='LUT grid N (N^3). Default 65.')
@@ -1532,10 +1544,17 @@ def main():
     p.add_argument('--only',nargs='+',choices=['trix']+COLOR_FILM_KEYS+NEGATIVE_FILM_KEYS,help='Generate only these film(s). Default: all.')
     p.add_argument('--colorspace',choices=list(COLORSPACES),default='adobergb',
                     help="LUT module application color space: 'adobergb' (default) or 'pq2020' (Rec.2020 primaries + SMPTE ST 2084 PQ).")
+    p.add_argument('--gamma',type=float,default=GAMMA_CORRECT_TARGET,
+                    help=f'Jones system-gamma target for the direct-print and negative-film gamma correction '
+                         f'(see GAMMA_CORRECT_TARGET comment block) -- real, cited range is roughly 1.1 '
+                         f'(Bartleson & Breneman light-surround/reflection-print) to 1.5-1.6 (dark-surround/'
+                         f'projection); 1.2-1.3 is their separate TV/self-luminous-display figure, corroborated '
+                         f'by Roufs et al.\'s own slide-scanner-to-monitor measurement. Default {GAMMA_CORRECT_TARGET}.')
     args=p.parse_args()
     if not 9<=args.size<=129: p.error("--size 9..129")
     only=set(args.only) if args.only else {'trix',*COLOR_FILM_KEYS,*NEGATIVE_FILM_KEYS}
     cs=COLORSPACES[args.colorspace]
+    GAMMA_CORRECT_TARGET=args.gamma
 
     t0=time.time(); total=0
 
