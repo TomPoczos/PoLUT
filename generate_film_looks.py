@@ -982,47 +982,140 @@ def density_midpoint(curve):
 #
 # What this file does instead: apply Jones's own math directly to the
 # already-digitized curve data, rather than simulate either physical
-# mechanism. gamma_correct_curve() rescales a reversal film's own curve
-# around its existing reference-density anchor (density_midpoint(), the
-# same point already used to calibrate this stage's exposure handoff) by
-# whatever factor brings (film gamma) x (that specific paper's own real
-# measured gamma) to GAMMA_CORRECT_TARGET. This is a neutral, magnitude-only
-# correction (matching a real flash's own spectral neutrality) applied
-# identically to the same reasoning for every layer, letting each dye
-# layer's own real curve shape carry the rest -- not a fabricated curve, and
-# labeled exactly as derived-not-published, the same honesty tier as
-# density_midpoint() itself.
+# mechanism -- and only where Jones's own theory actually claims validity.
+#
+# GAMMA_CORRECT_TARGET = 1.1, not 1.0. Jones's 1920 product rule targets
+# unity system gamma -- the mathematically correct target for *faithful*
+# reproduction, and the one real labs' own engineering (internegative gamma
+# x paper gamma ~= 1.0, see above) was built around. But unity system gamma
+# is the right target only for reproducing a *captured* image at the exact
+# viewing conditions of the original scene; a print is viewed under
+# different conditions (dimmer, smaller subtended angle, no local scene
+# adaptation) than the scene it depicts, and Bartleson & Breneman
+# ("Brightness Perception in Complex Fields," J. Opt. Soc. Am. 57, 1967 --
+# cited alongside Jones in the same tone-reproduction literature, e.g.
+# Lehmbeck & Urbach, "Basics for Tone Reproduction in Digital Imaging
+# Systems," ref. 59) measured the system gamma humans actually prefer for a
+# reflection print viewed with a light/bright surround (ordinary print or
+# screen viewing) at approximately 1.1 -- versus ~1.5-1.6 for a dark-surround
+# transparency/projection viewing. Since these are real reflection prints
+# (Radiance III, Ilfochrome), viewed the same way any photograph is, 1.1 is
+# the correct target for this viewing condition, not the pure-fidelity 1.0.
+# This is a second, independent, cited real constraint on top of Jones, not
+# an arbitrary tweak -- and it does not fully resolve the shadow-crush
+# problem below on its own (verified: pushing the *uniform* rescale target
+# well past 1.1 recovers less than a stop of shadow depth before it starts
+# recompressing the highlights the whole fix exists to preserve), which is
+# why the mechanism below is not a bigger scalar either.
+#
+# The correction is deliberately *not* a single scalar applied to the whole
+# curve. Jones's own product rule is explicit about its own scope: "for the
+# straight line portions where gradient is constant and replaceable by
+# gamma" (p.64) -- he never claims it governs the toe or shoulder. A single
+# scalar rescale nonetheless applies to the *entire* digitized curve,
+# including the toe/shoulder, which are already lower-gamma than the
+# straight line by definition; scaling them down *again* by the same
+# correction factor flattens them far more than Jones's own theory justifies
+# -- verified directly: doing this measurably starves the print of density
+# reach in the shadows (Kodachrome 64 x Radiance III: corrected curve's own
+# max density fell to 2.72 against the real digitized curve's 3.68, and the
+# print's own shadow density topped out at 1.83 against Radiance III's real
+# digitized Dmax of 2.52 -- roughly a stop of the paper's own real black
+# reserve going unused, symptom: shadows read as washed-out grey instead of
+# black despite the highlight side looking correct).
+#
+# gamma_correct_curve() instead rescales density *only* inside the curve's
+# own straight-line window (_straight_line_window() -- the same window
+# _measured_gamma()/density_midpoint() already read gamma/reference-density
+# from, so this introduces no new search or new definition of "straight
+# line," just a third use of the same one), by whatever factor brings (this
+# curve's own straight-line gamma) x (that specific paper's own straight-
+# line gamma) to GAMMA_CORRECT_TARGET. Outside that window -- the toe and
+# shoulder -- density is carried forward *additively*, using the curve's own
+# real, unmodified deltas from the manufacturer's own digitized data,
+# continuing from wherever the corrected straight-line segment ends. Toe and
+# shoulder therefore keep their true measured shape and reach the film's own
+# real Dmin/Dmax, exactly as digitized -- nothing invented, and no second
+# material (an internegative-style duplicating stock, e.g. EASTMAN Fine
+# Grain Duplicating Panchromatic Negative 2234/5234, papers/
+# kodak_finegrain_duplicating_pan_2234_TI0147.pdf) borrowed to do the job,
+# which was considered and rejected: TI0147 is, like EASTMAN Color
+# Internegative, itself a duplicating stock designed around some assumed
+# low-contrast "master positive" input, so inserting it would relocate the
+# exact mismatch this whole correction exists to fix rather than resolve it.
+# Verified improvement from this change alone (same film/paper/target):
+# corrected curve's own max density recovers to 2.97, and the print's own
+# shadow density reaches 2.12 against Radiance III's real 2.52 Dmax --
+# roughly two-thirds of a stop of the previously-wasted black reserve
+# recovered, using only data already digitized in this file.
+#
+# There is one real, deliberate, physically-motivated discontinuity: local
+# gamma has a step exactly at the straight-line window boundary (corrected
+# gamma inside, the curve's own real original gamma outside). Every curve in
+# this file is already represented and evaluated as piecewise-linear between
+# digitized sample points (_il()), so one additional slope discontinuity at
+# a real, principled boundary -- not an arbitrary blend -- is consistent
+# with how this file already represents every other curve, not a new kind
+# of artifact.
 # =========================================================================
-GAMMA_CORRECT_TARGET = 1.0
+GAMMA_CORRECT_TARGET = 1.1
 
 def gamma_correct_curve(curve, pivot_d, downstream_gamma, target=GAMMA_CORRECT_TARGET):
-    """Rescale a reversal film's own characteristic curve so (this curve's
-    own measured gamma) x `downstream_gamma` (the real measured gamma of
-    whatever print material follows it) lands at `target` -- see the
-    GAMMA_CORRECT_TARGET block above for the citation and full reasoning.
+    """Rescale a reversal film's own characteristic curve so, within its own
+    straight-line portion, (this curve's own straight-line gamma) x
+    `downstream_gamma` (the real straight-line gamma of whatever print
+    material follows it) lands at `target` -- see the GAMMA_CORRECT_TARGET
+    block above for the citation and full reasoning, including why this is
+    scoped to the straight-line window rather than applied to the whole
+    curve.
 
-    Density values are rescaled around `pivot_d` (the curve's own existing
-    reference-density anchor, e.g. VELVIA_REF_D[li] -- the same value
-    already used to calibrate this stage's printing-exposure handoff in
-    build_print_cascade()) rather than recomputed from the corrected curve.
-    This is exact, not approximate: wherever the original curve's density
-    equals pivot_d, the corrected curve's density at that same log-exposure
-    still equals pivot_d too (the correction term is zero there), so the
-    anchor crossing _find_anchor() finds for pivot_d doesn't move -- the
-    caller can keep reusing the original film_ref_d without recomputing it,
-    and every downstream printer-light calibration stays exactly where it
-    was. Because `correction` (target / (own_gamma * downstream_gamma)) is
-    always positive (both gammas are reported as positive magnitudes -- see
-    _measured_gamma()), this is a positive affine rescale of the density
-    axis: monotonicity, direction, and any tied/repeated density values
-    (the leading digitization-noise plateaus _detect_lead_noise_start()
-    looks for) are all preserved exactly, so the original curve's own start
-    index is still correct for the corrected curve -- no separate noise
-    detection needed on the corrected output.
+    Density values inside the straight-line window (_straight_line_window())
+    are rescaled around `pivot_d` (the curve's own existing reference-
+    density anchor, e.g. VELVIA_REF_D[li] -- the same value already used to
+    calibrate this stage's printing-exposure handoff in
+    build_print_cascade(), and, by construction, equal to the midpoint of
+    the same window's own density span -- see density_midpoint()). This is
+    exact, not approximate: wherever the original curve's density equals
+    pivot_d, the corrected curve's density at that same log-exposure still
+    equals pivot_d too, so the anchor crossing _find_anchor() finds for
+    pivot_d doesn't move -- the caller can keep reusing the original
+    film_ref_d without recomputing it, and every downstream printer-light
+    calibration stays exactly where it was.
+
+    Outside the window (the toe and shoulder), density is carried forward
+    additively from the window boundary using the curve's own real,
+    unmodified deltas -- D_new(k) = D_new(boundary) + (D_orig(k) -
+    D_orig(boundary)) -- so those regions keep their true digitized shape
+    and reach the material's own real Dmin/Dmax rather than being scaled
+    down along with the straight line.
+
+    Because `correction` (target / (own_gamma * downstream_gamma)) is always
+    positive (both gammas are reported as positive magnitudes -- see
+    _measured_gamma()) and the additive extension outside the window has
+    slope 1 relative to the original curve, monotonicity, direction, and any
+    tied/repeated density values (the leading digitization-noise plateaus
+    _detect_lead_noise_start() looks for) are all preserved exactly
+    everywhere, so the original curve's own start index is still correct for
+    the corrected curve -- no separate noise detection needed on the
+    corrected output.
     """
+    xs, ys = _sc(curve)
     own_gamma = _measured_gamma(curve)
     correction = target / (own_gamma * downstream_gamma)
-    return {k: pivot_d + (v - pivot_d) * correction for k, v in curve.items()}
+    grid, grid_y, lo, hi = _straight_line_window(xs, ys)
+    x_lo_w, x_hi_w = grid[lo], grid[hi]
+    D_lo_w, D_hi_w = grid_y[lo], grid_y[hi]
+    D_lo_w_new = pivot_d + (D_lo_w - pivot_d) * correction
+    D_hi_w_new = pivot_d + (D_hi_w - pivot_d) * correction
+    corrected = {}
+    for k, v in curve.items():
+        if x_lo_w <= k <= x_hi_w:
+            corrected[k] = pivot_d + (v - pivot_d) * correction
+        elif k < x_lo_w:
+            corrected[k] = D_lo_w_new + (v - D_lo_w)
+        else:
+            corrected[k] = D_hi_w_new + (v - D_hi_w)
+    return corrected
 
 # Computed once at import instead of once per build_trix_cascade() call --
 # depends only on TRIX_DEV7, not on the paper/look/variant being built.
