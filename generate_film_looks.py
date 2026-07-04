@@ -753,6 +753,32 @@ def get_spectrum_grid(size, cs):
         _SPECTRUM_GRID_CACHE[key]=build_spectrum_grid(size,cs)
     return _SPECTRUM_GRID_CACHE[key]
 
+def build_hk_grid(size, cs):
+    """Precompute hk_mul() for every LUT grid point once (Ticket 22). hk_mul()
+    depends only on the decoded grid-point RGB and the colour space -- not on
+    film, look, filter, or variant -- so every Modern-variant LUT for a given
+    (size, colorspace) run shares one grid instead of recomputing it from
+    scratch, the same "compute once, reuse many" shape as get_spectrum_grid().
+    Indexed identically to the spectrum grid's own (bi,gi,ri) nesting."""
+    dec,rgb2xyz=cs["dec"],cs["rgb2xyz"]; n=size-1
+    grid=[0.0]*(size*size*size)
+    idx=0
+    for bi in range(size):
+        B=dec(bi/n)
+        for gi in range(size):
+            G=dec(gi/n)
+            for ri in range(size):
+                grid[idx]=hk_mul(dec(ri/n),G,B,rgb2xyz)
+                idx+=1
+    return grid
+
+_HK_GRID_CACHE = {}
+def get_hk_grid(size, cs):
+    key=(size, cs["name"])
+    if key not in _HK_GRID_CACHE:
+        _HK_GRID_CACHE[key]=build_hk_grid(size,cs)
+    return _HK_GRID_CACHE[key]
+
 def layer_exposure_grid(sens_list, spectrum_grid):
     """Per-grid-point exposure for each of a color film's layers -- the
     layer_weights() replacement. For each layer, normalizes by that layer's
@@ -1221,6 +1247,28 @@ def density_midpoint(curve):
 # `target=None` handling), so main() can override it from args.gamma before
 # any LUT is built.
 #
+# Ticket 19 finding, and why the default moved back down to 1.25: measured
+# directly (tasks/19-gamma-correction-undershoots-target-at-grey.md), the
+# mechanism itself was solving its Jones-rule criterion at the wrong
+# operating point -- the fitted model's toe/shoulder junction x0 rather than
+# the real grey crossing, and each paper's downstream gamma read off its
+# *fitted* model rather than the *digitized* curve build_print_cascade()
+# actually renders through -- and was systematically undershooting whatever
+# target it was given. End-to-end at the "1.35" default, real delivered
+# system gamma at grey measured ~1.06-1.41 across routes -- so the push from
+# 1.25 to 1.35 documented above was real-world use compensating for this
+# undershoot, not a genuine preference for system gamma beyond the Roufs et
+# al. TV figure. `gamma_correct_curve()` now evaluates the criterion at the
+# model's own real grey crossing (`film_ref_d`, `z_ref` via `_norm_ppf()`),
+# and `_digitized_local_gamma()` (a centered secant on the paper's real
+# digitized curve) replaces `_split_gauss_local_gamma(paper_fit, ...)` for
+# downstream_gamma in both `_direct_print_stage_fn()` and
+# `_negative_gammacorrect_stage_fn()`. With both fixed, "1.35" genuinely
+# means 1.35 at grey (verified: mean 1.34-1.343 across both routes, versus
+# the old 1.06-1.41 spread) -- so the default moved back to 1.25, the
+# original Roufs et al. midpoint, to reproduce the punch real-world use had
+# already validated without inheriting the undershoot that produced it.
+#
 # TWO EARLIER VERSIONS of gamma_correct_curve() are documented here (not
 # just in git history) because both looked reasonable and both measurably
 # failed real-world use, and the reasons matter for not repeating them:
@@ -1385,7 +1433,7 @@ def density_midpoint(curve):
 # percent of each other, so the asymmetry that made this fix necessary for
 # the reversal films isn't present in those materials' own digitized curves.
 # =========================================================================
-GAMMA_CORRECT_TARGET = 1.35  # overridable via --gamma; see comment block above
+GAMMA_CORRECT_TARGET = 1.25  # overridable via --gamma; see comment block above (Ticket 19: moved back from 1.35 now that the correction mechanism itself is fixed)
 
 # Fitted split-normal-CDF parameters (x0, d_lo, d_hi, sigma_lo, sigma_hi) per
 # layer, produced by tools/gamma_correction_fit/main.py (`uv run main.py`)
@@ -1420,6 +1468,20 @@ def _norm_pdf(z):
     used for local_gamma below instead of a finite-difference estimate."""
     return math.exp(-z * z / 2.0) / math.sqrt(2.0 * math.pi)
 
+def _norm_ppf(p, lo=-8.0, hi=8.0, iters=60):
+    """Inverse standard normal CDF via bisection over _norm_cdf (Ticket 19)
+    -- stdlib-only, same rationale as _norm_cdf itself not needing scipy.
+    +/-8 sigma brackets every p this file ever calls this with (real fitted
+    density values sit well inside the model's own asymptotic range), and
+    60 bisection iterations narrows that to below float precision."""
+    for _ in range(iters):
+        mid = (lo + hi) / 2.0
+        if _norm_cdf(mid) < p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
 def _split_gauss_density(params, x):
     """D(x) for the fitted split-normal-CDF model -- see GAMMA_CORRECT_TARGET
     block for what this model is and why."""
@@ -1433,13 +1495,62 @@ def _split_gauss_local_gamma(params, x):
     sigma = sigma_lo if x < x0 else sigma_hi
     return abs((d_hi - d_lo) * _norm_pdf((x - x0) / sigma) / sigma)
 
-def gamma_correct_curve(film_params, downstream_gamma, target=None, n_samples=61):
+def _digitized_local_gamma(pxs, pys, x, h=0.15):
+    """|dD/dx| at x via a centered secant on the paper's real digitized
+    curve (Ticket 19 factor 1) -- what a downstream stage_fn should use for
+    `downstream_gamma` instead of _split_gauss_local_gamma(paper_fit, x),
+    which reads the *fitted* model's gamma at that point. The fit is
+    excellent globally (R^2 > 0.998) but a global least-squares fit is least
+    constrained exactly on the low-density toe where every paper's grey
+    crossing (`lhg`) sits -- measured gamma_digitized(lhg)/gamma_fitted(lhg)
+    ratios of 0.84-0.98 across the 3 direct-print papers and the 5
+    PAPER_LADDER papers, i.e. gamma_correct_curve() was dividing by a bigger
+    number than build_print_cascade() actually multiplies by, since the
+    cascade renders through the digitized curve, never through the fit.
+
+    h=0.15 (~1/2 stop in the log10(E) units this file's curves are keyed by,
+    log10(2)/2 = 0.15) is the window: checked against h=0.10 and h=0.20 on
+    every paper/layer in this file, all three agree within a few percent
+    (not the sensitive-to-a-single-segment regime a much smaller h would hit,
+    nor wide enough to blur into the toe/shoulder curvature on either side of
+    lhg). This is not v2's rejected window-average -- v2 window-averaged the
+    *film-side* rescale itself; this only reads the downstream operating-
+    point slope, previously proxied by an even less local number (a global
+    fit), same role _measured_gamma() plays elsewhere in this file just
+    evaluated at one specific point instead of over a whole straight-line
+    span."""
+    return abs(_il(pxs, pys, x + h) - _il(pxs, pys, x - h)) / (2 * h)
+
+def gamma_correct_curve(film_params, film_ref_d, downstream_gamma, target=None, n_samples=61):
     """Build the Jones-corrected reversal-film curve from its fitted split-
     normal-CDF model (`film_params`, one of the *_SPLITGAUSS_FIT rows above)
     -- see the GAMMA_CORRECT_TARGET block for the full physical/mathematical
     justification and the mechanisms (uniform rescale, windowed rescale,
     straight line, single-pivot split-Gaussian) this replaced, and why each
     fell short.
+
+    v5/Ticket 19 fix (this version): v5 (and v4 before it) solved k_lo/k_hi
+    from the model's local gamma at the toe/shoulder junction x0 -- but a
+    pure horizontal rescale keeps every half's local gamma *shape* the same,
+    it doesn't make the junction gamma equal the grey-point gamma unless the
+    grey crossing happens to land exactly at x0, which it doesn't (measured
+    z_ref -- the grey crossing's distance from x0 in model sigma-units --
+    consistently -0.11 to -0.23, not 0). Solving the criterion at x0 instead
+    of at the real grey operating point delivered a system gamma at grey
+    systematically ~97-99% of target on the film side alone (compounding
+    with a larger paper-side shortfall, see the two stage_fn()s below) --
+    measured end-to-end in tasks/19-gamma-correction-undershoots-target-at-
+    grey.md. `film_ref_d` (both callers already hold this, it's the same
+    ref_d used for this stage's own build_print_cascade() anchor) locates
+    that real crossing: `p = (film_ref_d-d_lo)/(d_hi-d_lo)` is the model's
+    CDF value there, `z_ref = _norm_ppf(p)` its z-score (the same z-score
+    regardless of which half's sigma will end up converting it to an
+    exposure offset, since the model is one continuous CDF in z across the
+    x0 junction), and `_norm_pdf(z_ref)` replaces the old `_norm_pdf(0.0)`
+    in the peak-density-rate used by both k_lo and k_hi -- exactly the
+    fix the ticket derives algebraically (system gamma at grey =
+    target * [phi(z_ref)/phi(0)] * [paper-side ratio], so dividing the
+    peak by phi(0) and using phi(z_ref) instead cancels that first factor).
 
     v4 (single-pivot) rescaled the whole curve by one factor `k`, derived
     from the model's local gamma at whichever real-world reference exposure
@@ -1491,7 +1602,8 @@ def gamma_correct_curve(film_params, downstream_gamma, target=None, n_samples=61
     if target is None:
         target = GAMMA_CORRECT_TARGET  # live lookup, not a def-time-bound default -- see --gamma
     x0, d_lo, d_hi, sigma_lo, sigma_hi = film_params
-    peak = abs(d_hi - d_lo) * _norm_pdf(0.0)
+    z_ref = _norm_ppf((film_ref_d - d_lo) / (d_hi - d_lo))
+    peak = abs(d_hi - d_lo) * _norm_pdf(z_ref)
     k_lo = target / (downstream_gamma * (peak / sigma_lo))
     k_hi = target / (downstream_gamma * (peak / sigma_hi))
     lo = x0 - 8 * sigma_lo
@@ -1533,23 +1645,20 @@ def write_bw_lut(path, title, exposure_grid, xfer, size, use_hk, cs=COLORSPACES[
     exposure list from trix_exposure_grid() (Ticket 21 — real spectral
     reconstruction per pixel, replacing the old fixed-weight-triple
     `R**wr * G**wg * B**wb` geometric mean), indexed in the same
-    (bi,gi,ri)-nested order as this function's own grid loop."""
-    n=size-1
-    dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
+    (bi,gi,ri)-nested order as this function's own grid loop. HK multipliers
+    come from the cached get_hk_grid() (Ticket 22) instead of decoding RGB and
+    calling hk_mul() per pixel -- decode is no longer needed here at all,
+    since exposure_grid already holds the real per-pixel exposure."""
+    enc,label=cs["enc"],cs["label"]
+    hk_grid=get_hk_grid(size,cs) if use_hk else None
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
         f.write(f'# {label} in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
-        idx=0
-        for bi in range(size):
-            for gi in range(size):
-                for ri in range(size):
-                    R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
-                    E=exposure_grid[idx]
-                    if use_hk and E>1e-9: E*=hk_mul(R,G,B,rgb2xyz)
-                    v=enc(xfer(E))
-                    f.write(f'{v:.6f} {v:.6f} {v:.6f}\n')
-                    idx+=1
+        for idx,E in enumerate(exposure_grid):
+            if hk_grid is not None and E>1e-9: E*=hk_grid[idx]
+            v=enc(xfer(E))
+            f.write(f'{v:.6f} {v:.6f} {v:.6f}\n')
 
 def write_color_lut(path, title, lw, xfers, size, use_hk, cs=COLORSPACES["adobergb"]):
     """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out.
@@ -1558,26 +1667,24 @@ def write_color_lut(path, title, lw, xfers, size, use_hk, cs=COLORSPACES["adober
     from layer_exposure_grid() (Ticket 16 — real spectral reconstruction per
     pixel, replacing the old fixed-weight-triple `R*wr+G*wg+B*wb` dot
     product), indexed in the same (bi,gi,ri)-nested order as this function's
-    own grid loop."""
-    n=size-1
-    dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
+    own grid loop. HK multipliers come from the cached get_hk_grid() (Ticket
+    22) instead of decoding RGB and calling hk_mul() per pixel -- decode is no
+    longer needed here at all."""
+    enc,label=cs["enc"],cs["label"]
+    hk_grid=get_hk_grid(size,cs) if use_hk else None
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
         f.write(f'# {label} in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
-        idx=0
-        for bi in range(size):
-            for gi in range(size):
-                for ri in range(size):
-                    R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
-                    hk=hk_mul(R,G,B,rgb2xyz) if use_hk else 1.0
-                    out=[]
-                    for li in range(3):
-                        E=lw[li][idx]
-                        if E>1e-9: E*=hk
-                        out.append(xfers[li](E))
-                    f.write(f'{enc(out[0]):.6f} {enc(out[1]):.6f} {enc(out[2]):.6f}\n')
-                    idx+=1
+        n_idx=len(lw[0])
+        for idx in range(n_idx):
+            hk=hk_grid[idx] if hk_grid is not None else 1.0
+            out=[]
+            for li in range(3):
+                E=lw[li][idx]
+                if E>1e-9: E*=hk
+                out.append(xfers[li](E))
+            f.write(f'{enc(out[0]):.6f} {enc(out[1]):.6f} {enc(out[2]):.6f}\n')
 
 # =========================================================================
 # Main
@@ -1663,23 +1770,31 @@ def _direct_print_stage_fn(film_ref_d, film_fit):
     *_SPLITGAUSS_FIT (one fitted-model tuple per layer, see
     GAMMA_CORRECT_TARGET's comment for what the model is and why). Each
     layer's own reversal curve is gamma-corrected (gamma_correct_curve())
-    using *that specific paper layer's own* fitted model, evaluated exactly
-    at that paper layer's own real grey-reproduction exposure (`lhg`, found
-    via _find_anchor() on the paper's real digitized curve the same way
-    build_print_cascade() itself finds it for the final stage) as the
-    downstream gamma -- not a blended film-wide or paper-wide number -- so
-    R/G/B each get the correction their own physical channel actually needs.
-    `film_ref_d[li]` is passed through unchanged as the corrected stage's own
-    `ref_d` -- build_print_cascade() finds wherever the corrected curve
-    reproduces that density via _find_anchor(), regardless of where
-    gamma_correct_curve() placed it (see that function's own docstring for
+    using *that specific paper layer's own* real digitized-curve local gamma
+    (`_digitized_local_gamma()`, Ticket 19 -- not the fitted model: measured
+    gamma_digitized(lhg)/gamma_fitted(lhg) ratios of 0.84-0.98 on these
+    exact papers, since build_print_cascade() renders through the digitized
+    curve, never the fit), evaluated exactly at that paper layer's own real
+    grey-reproduction exposure (`lhg`, found via _find_anchor() on the
+    paper's real digitized curve the same way build_print_cascade() itself
+    finds it for the final stage) as the downstream gamma -- not a blended
+    film-wide or paper-wide number -- so R/G/B each get the correction their
+    own physical channel actually needs. `paper_fit` is accepted but no
+    longer used here (kept so all three routes -- direct-print, negative,
+    and Ticket 20's eventual internegative fix -- share one `(li, paper,
+    paper_fit)` stage_fn arity; see Ticket 19/20 for why DIRECT_PRINT_PAPER_FIT
+    isn't deleted outright). `film_ref_d[li]` is passed through unchanged as
+    the corrected stage's own `ref_d` -- build_print_cascade() finds wherever
+    the corrected curve reproduces that density via _find_anchor(),
+    regardless of where gamma_correct_curve() placed it (see that function's
+    own docstring for
     why no pivot bookkeeping is needed here)."""
     def stage_fn(li, paper, paper_fit):
         pxs, pys = _sc(paper[li])
         lhg = _find_anchor(pxs, pys, _grey_target_density(pys), increasing=False,
                             start=_detect_lead_noise_start(paper[li], False))
-        downstream_gamma = _split_gauss_local_gamma(paper_fit[li], lhg)
-        corrected = gamma_correct_curve(film_fit[li], downstream_gamma)
+        downstream_gamma = _digitized_local_gamma(pxs, pys, lhg)
+        corrected = gamma_correct_curve(film_fit[li], film_ref_d[li], downstream_gamma)
         return [
             (corrected, False, 0, film_ref_d[li]),
             (paper[li], False, _detect_lead_noise_start(paper[li], False), None)]
@@ -1759,18 +1874,21 @@ def _negative_gammacorrect_stage_fn(film_ref_d, film_fit):
     GAMMA_CORRECT_TARGET's comment) against whichever PAPER_LADDER paper is
     passed in at call time -- whichever paper is passed at call time -> the
     same paper directly, no internegative stage. Mirrors
-    _direct_print_stage_fn()'s shape (fitted-model correction, exact local
-    gamma at each material's own real operating point) but with
-    increasing=True (density rises with exposure, like TRIX_DEV7 and every
-    PAPER_LADDER paper) on both stages instead of False on the first --
-    replaces the former, uncorrected _negative_stage_fn() (see this
-    constant block's own comment for why the correction was added)."""
+    _direct_print_stage_fn()'s shape (fitted-model film-side correction,
+    digitized-curve secant for the paper-side downstream gamma -- Ticket 19,
+    `_digitized_local_gamma()` -- at each material's own real operating
+    point) but with increasing=True (density rises with exposure, like
+    TRIX_DEV7 and every PAPER_LADDER paper) on both stages instead of False
+    on the first -- replaces the former, uncorrected _negative_stage_fn()
+    (see this constant block's own comment for why the correction was
+    added). `paper_fit` is accepted but unused here for the same reason as
+    _direct_print_stage_fn()'s -- shared 3-arg stage_fn arity across routes."""
     def stage_fn(li, paper, paper_fit):
         pxs, pys = _sc(paper[li])
         lhg = _find_anchor(pxs, pys, _grey_target_density(pys), increasing=True,
                             start=_detect_lead_noise_start(paper[li], True))
-        downstream_gamma = _split_gauss_local_gamma(paper_fit[li], lhg)
-        corrected = gamma_correct_curve(film_fit[li], downstream_gamma)
+        downstream_gamma = _digitized_local_gamma(pxs, pys, lhg)
+        corrected = gamma_correct_curve(film_fit[li], film_ref_d[li], downstream_gamma)
         return [
             (corrected, True, 0, film_ref_d[li]),
             (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
