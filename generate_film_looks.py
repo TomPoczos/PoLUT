@@ -47,7 +47,7 @@ Usage:
   python generate_film_looks.py --help
 """
 
-import argparse, math, os, time
+import argparse, math, os, time, json
 
 # =========================================================================
 # CIE 1931 2-deg observer + D65
@@ -150,8 +150,8 @@ _SSF_REC2020 = _make_ssf(_MA_REC2020)
 # Adobe RGB so the committed .cube files are unaffected unless --colorspace
 # pq2020 is passed explicitly.
 COLORSPACES = {
-    "adobergb": dict(label="Adobe RGB",   ssf=_SSF_ADOBE,   rgb2xyz=_MA_INV_ADOBE,   dec=adec, enc=aenc),
-    "pq2020":   dict(label="PQ Rec.2020", ssf=_SSF_REC2020, rgb2xyz=_MA_INV_REC2020, dec=pqdec, enc=pqenc),
+    "adobergb": dict(name="adobergb", label="Adobe RGB",   ssf=_SSF_ADOBE,   rgb2xyz=_MA_INV_ADOBE,   dec=adec, enc=aenc),
+    "pq2020":   dict(name="pq2020",   label="PQ Rec.2020", ssf=_SSF_REC2020, rgb2xyz=_MA_INV_REC2020, dec=pqdec, enc=pqenc),
 }
 
 # =========================================================================
@@ -623,11 +623,179 @@ def _weights(sens, filt=None, ssf=_SSF_ADOBE):
     tot=wr+wg+wb
     return (wr/tot,wg/tot,wb/tot) if tot>0 else (1/3,1/3,1/3)
 
-def layer_weights(sens_list, ssf=_SSF_ADOBE):
-    """3×3 matrix: per-layer weights mapping scene RGB → layer exposure, for
-    any 3-layer color material (Velvia 50, Kodachrome 64, Provia 100F,
-    Ektachrome 100D)."""
-    return [_weights(layer, ssf=ssf) for layer in sens_list]
+
+# =========================================================================
+# Spectral reconstruction (Jakob & Hanika 2019) -- see Ticket 16
+# (tasks/16-fixed-rgb-weights-no-spectral-reconstruction.md)
+# =========================================================================
+# `_weights()` above collapses a whole spectral sensitivity curve against
+# D65 and a FIXED per-channel weight triple, once -- every color film used
+# to derive its per-pixel exposure as a plain `R*wr + G*wg + B*wb` dot
+# product against that fixed triple (`layer_weights()`, now removed). That is
+# mathematically equivalent to assuming every photographed colour is exactly
+# a linear-light mixture of the three RGB primaries' own spectral power
+# distributions -- real reflectance spectra are not that, and a real film's
+# spectral sensitivity is not colorimetric, so two real colours that are
+# metamers under the CIE 1931 observer (same RGB triple) can and do expose
+# real film differently. `_weights()` itself is unchanged and still used for
+# Tri-X (B&W has no per-channel colour to get wrong the same way -- see the
+# ticket's own scope note); every COLOR_FILMS/NEGATIVE_FILMS colour film
+# below instead reconstructs a real, physically-plausible reflectance
+# spectrum per LUT grid point (Jakob & Hanika 2019, "A Low-Dimensional
+# Function Space for Efficient Spectral Upsampling," Computer Graphics Forum
+# 38(2), 147-155) and integrates each layer's own real digitized sensitivity
+# curve against THAT instead of against the primaries themselves. See
+# papers/spectral_upsampling/README.md for the full research trail
+# (including the reference C++ implementation and the independent Python
+# port this project's own coefficient tables were fit with) and
+# tools/spectral_upsample_fit/ for the offline fitting tool that produces
+# spectral_upsampling_tables/<colorspace>.json -- this file only ever
+# *evaluates* that baked table (stdlib json + plain arithmetic, no scipy),
+# the same "fit offline, consume as data" split tools/gamma_correction_fit/
+# already established for *_SPLITGAUSS_FIT.
+#
+# The reconstructed spectrum depends only on the LUT grid's (R,G,B)
+# coordinate and the target colour space's own gamut (which baked table is
+# loaded) -- NOT on which film/layer is being rendered -- so it's computed
+# once per (size, colorspace) via build_spectrum_grid() and shared across
+# every one of this run's color films, the same "compute once, reuse many"
+# principle as DONE-05/DONE-08/DONE-11's fixes elsewhere in this file.
+_SPECTRAL_TABLE_CACHE = {}
+def _spectral_table(cs_name):
+    """Load+cache spectral_upsampling_tables/<cs_name>.json (baked by
+    tools/spectral_upsample_fit/)."""
+    if cs_name not in _SPECTRAL_TABLE_CACHE:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "spectral_upsampling_tables", f"{cs_name}.json")
+        with open(path) as f:
+            _SPECTRAL_TABLE_CACHE[cs_name] = json.load(f)
+    return _SPECTRAL_TABLE_CACHE[cs_name]
+
+def _rgb_to_sigmoid_coeffs(table, r, g, b):
+    """Jakob & Hanika (2019) coefficient lookup: largest-channel-relative
+    gamut parameterization + trilinear interpolation over the baked table,
+    matching tools/spectral_upsample_fit/main.py's _chroma_vector() /
+    _solve_column() convention exactly (verified there against an exact
+    grid-vertex round-trip, not assumed -- see that tool's own comments):
+    for the largest channel `l`, the OTHER two channels normalized by it are
+    stored (chroma[(l+1)%3] on the table's axis2, chroma[(l+2)%3] on axis3).
+    Achromatic (r==g==b) input uses the model's own closed-form solution
+    (a flat spectrum at exactly that reflectance -- see rgb2spec_fetch_mono()
+    in the reference C++ implementation, papers/spectral_upsampling/README.md)
+    instead of interpolating, both because it's exact and because grey is
+    the one input the table's discrete chroma grid doesn't sample directly."""
+    r=max(0.0,min(1.0,r)); g=max(0.0,min(1.0,g)); b=max(0.0,min(1.0,b))
+    if r==g==b:
+        # Closed-form flat-spectrum solution (rgb2spec_fetch_mono() in the
+        # reference C++ implementation). v==0/v==1 need their own exact
+        # branches (not an epsilon clamp -- an earlier version of this
+        # function clamped to [1e-6, 1-1e-6] instead, which left pure black
+        # reconstructing at reflectance 1e-6 instead of exactly 0, caught by
+        # this project's own grey-invariant test): a large-magnitude
+        # sentinel coefficient (matching the reference's +-8192, just in
+        # double precision where +-1e6 already saturates the sigmoid to
+        # 0.0/1.0 to float precision) reproduces exactly 0/1 through
+        # _sigmoid_spectrum() instead of merely approximating it.
+        v=r
+        if v<=0.0: return (0.0,0.0,-1e6)
+        if v>=1.0: return (0.0,0.0,1e6)
+        return (0.0,0.0,(v-0.5)/math.sqrt(v*(1.0-v)))
+    rgb=(r,g,b)
+    vmax=max(rgb)
+    if vmax<=1e-10:
+        return (0.0,0.0,-8192.0)
+    l=rgb.index(vmax)
+    chroma=[c/vmax for c in rgb]
+    y1=chroma[(l+1)%3]; y2=chroma[(l+2)%3]
+    size=table["size"]; lightness=table["lightness_scale"]; coeffs=table["coefficients"]
+    xg=max(0.0,min(float(size-1),y2*(size-1)))
+    yg=max(0.0,min(float(size-1),y1*(size-1)))
+    x0=min(int(xg),size-2); x1=x0+1; tx=xg-x0
+    y0=min(int(yg),size-2); y1i=y0+1; ty=yg-y0
+    lo,hi=0,size-1
+    while hi-lo>1:
+        m=(lo+hi)//2
+        if lightness[m]<=vmax: lo=m
+        else: hi=m
+    zi=min(lo,size-2)
+    denom=lightness[zi+1]-lightness[zi]
+    tz=(vmax-lightness[zi])/denom if denom>0 else 0.0
+
+    def at(z,y,x): return coeffs[l][z][y][x]
+    c00,c01,c10,c11=at(zi,y0,x0),at(zi,y0,x1),at(zi,y1i,x0),at(zi,y1i,x1)
+    d00,d01,d10,d11=at(zi+1,y0,x0),at(zi+1,y0,x1),at(zi+1,y1i,x0),at(zi+1,y1i,x1)
+    out=[0.0,0.0,0.0]
+    for k in range(3):
+        lo_z=(c00[k]*(1-tx)+c01[k]*tx)*(1-ty)+(c10[k]*(1-tx)+c11[k]*tx)*ty
+        hi_z=(d00[k]*(1-tx)+d01[k]*tx)*(1-ty)+(d10[k]*(1-tx)+d11[k]*tx)*ty
+        out[k]=lo_z*(1-tz)+hi_z*tz
+    return tuple(out)
+
+def _sigmoid_spectrum(coeffs, wavelengths):
+    """R(lambda) = 1/2 + U/(2*sqrt(1+U^2)), U = c0*lambda^2 + c1*lambda + c2
+    -- the Jakob & Hanika (2019) sigmoid reflectance model, evaluated in the
+    wavelength (nm) domain (coefficients are already dimensionalised by
+    tools/spectral_upsample_fit/, matching dimensionalise_coefficients() in
+    colour.recovery.jakob2019)."""
+    c0,c1,c2=coeffs
+    out=[]
+    for wl in wavelengths:
+        u=c0*wl*wl+c1*wl+c2
+        out.append(0.5+u/(2.0*math.sqrt(1.0+u*u)))
+    return out
+
+_SPECTRAL_WAVELENGTHS=list(range(400,710,10))
+
+def build_spectrum_grid(size, cs):
+    """Reconstruct a real, physically-plausible reflectance spectrum for
+    every LUT grid point once -- shared across every color film's exposure
+    calculation for this (size, colorspace) run (see this section's own
+    module comment)."""
+    table=_spectral_table(cs["name"])
+    dec=cs["dec"]; n=size-1
+    grid=[None]*(size*size*size)
+    idx=0
+    for bi in range(size):
+        for gi in range(size):
+            for ri in range(size):
+                R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
+                coeffs=_rgb_to_sigmoid_coeffs(table,R,G,B)
+                grid[idx]=_sigmoid_spectrum(coeffs,_SPECTRAL_WAVELENGTHS)
+                idx+=1
+    return grid
+
+_SPECTRUM_GRID_CACHE = {}
+def get_spectrum_grid(size, cs):
+    key=(size, cs["name"])
+    if key not in _SPECTRUM_GRID_CACHE:
+        _SPECTRUM_GRID_CACHE[key]=build_spectrum_grid(size,cs)
+    return _SPECTRUM_GRID_CACHE[key]
+
+def layer_exposure_grid(sens_list, spectrum_grid):
+    """Per-grid-point exposure for each of a color film's layers -- the
+    layer_weights() replacement. For each layer, normalizes by that layer's
+    own real Sum(sens*D65) total (exactly the same normalization role
+    `tot` played in the old _weights()) so that an achromatic grey pixel
+    (whose reconstructed spectrum is exactly flat, see
+    _rgb_to_sigmoid_coeffs()'s mono case) still yields exposure == the grey
+    reflectance value itself, unchanged -- preserving every existing
+    GREY=0.18 cascade-anchor calibration (build_print_cascade() etc.)
+    without having to touch any of that machinery. Deliberately does NOT
+    take an `ssf` (colour-space CMF row) argument the way the old
+    layer_weights() did: which RGB colour space is being targeted is now
+    fully captured by which baked table `spectrum_grid` was reconstructed
+    from, so mixing in the colour space's own CMF row a second time here
+    (as the old normalization implicitly did) would be double-counting it."""
+    out=[]
+    for layer in sens_list:
+        sk=sorted(layer); sv=[layer[k] for k in sk]
+        sens_d65=[_il10(sk,sv,wl)*D65[wl] for wl in _SPECTRAL_WAVELENGTHS]
+        tot=sum(sens_d65)
+        if tot<=0:
+            out.append([0.0]*len(spectrum_grid))
+            continue
+        out.append([sum(s*w for s,w in zip(spectrum,sens_d65))/tot for spectrum in spectrum_grid])
+    return out
 
 # =========================================================================
 # Cascade builders
@@ -1294,26 +1462,30 @@ def write_bw_lut(path, title, weights, xfer, size, use_hk, cs=COLORSPACES["adobe
 def write_color_lut(path, title, lw, xfers, size, use_hk, cs=COLORSPACES["adobergb"]):
     """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out.
     `cs` picks the LUT module application colour space (see COLORSPACES);
-    defaults to Adobe RGB."""
+    defaults to Adobe RGB. `lw` is a per-layer, per-grid-point exposure grid
+    from layer_exposure_grid() (Ticket 16 — real spectral reconstruction per
+    pixel, replacing the old fixed-weight-triple `R*wr+G*wg+B*wb` dot
+    product), indexed in the same (bi,gi,ri)-nested order as this function's
+    own grid loop."""
     n=size-1
     dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
         f.write(f'# {label} in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
+        idx=0
         for bi in range(size):
             for gi in range(size):
                 for ri in range(size):
                     R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
-                    # Per-layer exposure (arithmetic, not geometric — each layer sees its own band)
                     hk=hk_mul(R,G,B,rgb2xyz) if use_hk else 1.0
                     out=[]
                     for li in range(3):
-                        wr,wg,wb=lw[li]
-                        E=wr*R+wg*G+wb*B
+                        E=lw[li][idx]
                         if E>1e-9: E*=hk
                         out.append(xfers[li](E))
                     f.write(f'{enc(out[0]):.6f} {enc(out[1]):.6f} {enc(out[2]):.6f}\n')
+                    idx+=1
 
 # =========================================================================
 # Main
@@ -1584,7 +1756,7 @@ def main():
     # per film rather than a replacement for the PAPER_LADDER one.
     for key,fileprefix,dispname,sens,stage_fn in COLOR_FILMS:
         if key not in only: continue
-        lw=layer_weights(sens,ssf=cs["ssf"])
+        lw=layer_exposure_grid(sens,get_spectrum_grid(args.size,cs))
         outdir=os.path.join(args.output,key)
         os.makedirs(outdir,exist_ok=True)
         n_luts=(len(COLOR_LOOKS)+len(DIRECT_PRINT_LOOKS))*2
@@ -1619,7 +1791,7 @@ def main():
     # constant's own comment.
     for key,fileprefix,dispname,sens,stage_fn in NEGATIVE_FILMS:
         if key not in only: continue
-        lw=layer_weights(sens,ssf=cs["ssf"])
+        lw=layer_exposure_grid(sens,get_spectrum_grid(args.size,cs))
         outdir=os.path.join(args.output,key)
         os.makedirs(outdir,exist_ok=True)
         print(f"\n{'='*60}\n{key} ({dispname})  |  {args.size}^3  |  {cs['label']}  |  {len(COLOR_LOOKS)*2} LUTs")

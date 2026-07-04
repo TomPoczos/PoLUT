@@ -1,0 +1,11 @@
+[project]
+name = "spectral-upsample-fit"
+version = "0.1.0"
+description = "Fit Jakob-Hanika (2019) spectral-upsampling coefficient tables against this project's own CIE/D65/primary-matrix data, for generate_film_looks.py's per-pixel spectral reconstruction step (Ticket 16)."
+requires-python = ">=3.12"
+dependencies = [
+    "colour-science>=0.4.7",
+    "numpy>=2.5.0",
+    "scipy>=1.18.0",
+    "tqdm>=4.66.0",
+]
