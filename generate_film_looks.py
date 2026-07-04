@@ -1327,6 +1327,51 @@ def density_midpoint(curve):
 # the exact real-vs-duplicating-positive mismatch this correction exists to
 # escape, not resolve it (same failure mode as INTERNEGATIVE_II_CURVES
 # against a real reversal original -- see above).
+#
+# v5 (this version): v4's own verification above only ever checked the
+# *shadow* end (an extreme, off-scale exposure where the fitted model has
+# already reached its own flat asymptote) -- it never checked the symmetric
+# highlight question at the one exposure every real image actually supplies:
+# encoded pure white, only ~2.47 stops over 18% grey (log2(1/GREY)). Checked
+# directly, v4 fell well short there: every one of the 4 reversal films x 3
+# direct-print papers needed *more than 3 stops* above grey to reach 90% of
+# its own asymptotic white, so an encoded-white pixel topped out around
+# 0.72-0.85 reflectance -- never approaching paper white, on every single
+# combination. Root cause: v4's single shared factor k was derived from the
+# model's local gamma at whichever real-world reference exposure (na0, a
+# reversal film's own density-midpoint) happened to land -- then applied
+# identically to *both* the toe (x<x0) and shoulder (x>=x0) halves. Every
+# material fit in this file has sigma_lo != sigma_hi by design (toe/grain-
+# threshold statistics and shoulder/dye-exhaustion are different physical
+# mechanisms); Velvia's own fitted shoulder is ~1.6x wider than its toe.
+# na0 happened to fall in the toe half for every material checked, so v4's k
+# was already correct for the toe -- but reusing that same factor for the
+# shoulder over-stretched it, demanding far more exposure headroom than a
+# [0,1]-normalized image can ever supply.
+#
+# gamma_correct_curve() now derives two independent factors, k_lo and k_hi,
+# each satisfying the identical Jones-rule criterion v4 already used
+# (local_gamma * downstream_gamma == target) but evaluated at the toe/
+# shoulder junction x0 using that half's *own* sigma, instead of inheriting
+# whichever factor the other half needed. Both halves still meet
+# continuously at x0 (matching the un-corrected model's own value-
+# continuous/slope-discontinuous behavior there -- an accepted
+# simplification already, see split_gaussian_cdf's own docstring in
+# tools/gamma_correction_fit/main.py). The toe's correction is unchanged
+# from v4; only the shoulder moves. Verified: Velvia x Radiance III now
+# needs ~2.25-2.3 stops to reach 90% of white (within the ~2.47 stops
+# actually available), reflectance ~0.93-0.94 at encoded white -- matching
+# the reference point Tri-X reliably reaches -- and consistent across all
+# 12 reversal film x direct-print-paper combinations (2.2-2.8 stops needed,
+# versus 3.0-3.8 under v4). The shadow side is untouched by this fix and
+# still compresses within roughly a stop below grey -- a real, measured
+# material property (the toe genuinely is narrower than the shoulder in the
+# digitized data), not an artifact of the correction mechanism, and a
+# separate question from the highlight bug this fixes. Applies identically
+# to NEGATIVE_FILMS x PAPER_LADDER (same function), but barely moves
+# anything there: negative-film fits have sigma_lo and sigma_hi within a few
+# percent of each other, so the asymmetry that made this fix necessary for
+# the reversal films isn't present in those materials' own digitized curves.
 # =========================================================================
 GAMMA_CORRECT_TARGET = 1.35  # overridable via --gamma; see comment block above
 
@@ -1376,23 +1421,52 @@ def _split_gauss_local_gamma(params, x):
     sigma = sigma_lo if x < x0 else sigma_hi
     return abs((d_hi - d_lo) * _norm_pdf((x - x0) / sigma) / sigma)
 
-def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=None, n_samples=61):
+def gamma_correct_curve(film_params, downstream_gamma, target=None, n_samples=61):
     """Build the Jones-corrected reversal-film curve from its fitted split-
     normal-CDF model (`film_params`, one of the *_SPLITGAUSS_FIT rows above)
     -- see the GAMMA_CORRECT_TARGET block for the full physical/mathematical
-    justification and the two earlier mechanisms (uniform rescale, windowed
-    rescale, straight line) this replaced, and why each fell short.
+    justification and the mechanisms (uniform rescale, windowed rescale,
+    straight line, single-pivot split-Gaussian) this replaced, and why each
+    fell short.
 
-    Rescales the model's own exposure axis only -- every fitted density
-    value is kept exactly as computed by the model, just relabeled to a new
-    exposure position stretched around (`pivot_x`, `pivot_d`) by whatever
-    factor `k` makes the model's own exact local gamma at the pivot
-    (`_split_gauss_local_gamma`), times `k`, equal `target / downstream_gamma`.
-    Because `pivot_d` is a real value the model actually passes through at
-    `pivot_x` (the same reference-exposure/reference-density anchor already
-    used to calibrate this stage's printing-exposure handoff in
-    build_print_cascade()), this preserves it exactly, so callers can keep
-    reusing the original `film_ref_d` unchanged.
+    v4 (single-pivot) rescaled the whole curve by one factor `k`, derived
+    from the model's local gamma at whichever real-world reference exposure
+    (`na0`) happened to land in the curve's toe or shoulder half, then
+    applied that *same* k to the other half too. Every material fit in this
+    file has sigma_lo != sigma_hi by design (toe/grain-threshold statistics
+    and shoulder/dye-exhaustion are different physical mechanisms, see
+    split_gaussian_cdf's own docstring), so reusing one side's factor for
+    the other silently over- or under-corrects it. Measured on Velvia x
+    Radiance III: v4 needed >3 stops of exposure above grey to reach 90% of
+    its own asymptotic white -- more headroom than a normalized linear image
+    ever supplies (encoded pure white is only ~2.47 stops over 18% grey,
+    log2(1/GREY)) -- so real encoded-white pixels topped out around
+    0.78-0.80 reflectance, never approaching paper white, across all 4
+    reversal films x 3 direct-print papers.
+
+    This version corrects the toe (`x < x0`) and shoulder (`x >= x0`) by
+    independent factors `k_lo`/`k_hi`, each chosen so *that* half's own
+    natural local gamma at the toe/shoulder junction x0 (`peak/sigma_lo` or
+    `peak/sigma_hi`, `peak` being the shared PDF peak `|d_hi-d_lo|*φ(0)`),
+    times `downstream_gamma`, equals `target` -- the same Jones-rule
+    criterion v4 applied once, now applied to each half on its own terms.
+    Both halves stay anchored at the model's own x0 (mapping to itself, so
+    the curve is continuous there, matching the un-corrected model's own
+    value-continuous/slope-discontinuous behavior at the junction -- an
+    accepted simplification already, see split_gaussian_cdf's docstring).
+    Verified: this brings Velvia x Radiance III down to ~2.25-2.3 stops to
+    reach 90% of white (within the available headroom), reflectance
+    ~0.93-0.94 at encoded white -- matching the reference point Tri-X
+    reliably reaches -- without disturbing the toe, which was already being
+    corrected by its own natural factor under v4 (na0 happened to fall on
+    the toe side for every material checked).
+
+    Every fitted density value is kept exactly as computed by the model, so
+    its own real fitted Dmin/Dmax are reached, not truncated -- only exposure
+    positions are relabeled. build_print_cascade() re-finds wherever this
+    curve reproduces each caller's own `ref_d` via `_find_anchor()`
+    regardless of where that lands, so no pivot-density bookkeeping is
+    needed here.
 
     Returns a `n_samples`-point curve dict spanning +/-8 sigma either side
     of the model's own fitted x0 (comfortably covering where the CDF moves
@@ -1400,12 +1474,14 @@ def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=
     its own fitted Dmin/Dmax) for build_print_cascade()'s existing dict-
     based machinery. Construction guarantees monotonicity, so `start=0` is
     always correct here -- `_detect_lead_noise_start()` doesn't need to run
-    on it, same as the straight-line version this replaced.
+    on it.
     """
     if target is None:
         target = GAMMA_CORRECT_TARGET  # live lookup, not a def-time-bound default -- see --gamma
     x0, d_lo, d_hi, sigma_lo, sigma_hi = film_params
-    k = target / (downstream_gamma * _split_gauss_local_gamma(film_params, pivot_x))
+    peak = abs(d_hi - d_lo) * _norm_pdf(0.0)
+    k_lo = target / (downstream_gamma * (peak / sigma_lo))
+    k_hi = target / (downstream_gamma * (peak / sigma_hi))
     lo = x0 - 8 * sigma_lo
     hi = x0 + 8 * sigma_hi
     step = (hi - lo) / (n_samples - 1)
@@ -1413,7 +1489,8 @@ def gamma_correct_curve(film_params, pivot_x, pivot_d, downstream_gamma, target=
     for i in range(n_samples):
         x_orig = lo + i * step
         y = _split_gauss_density(film_params, x_orig)
-        x_new = pivot_x + (x_orig - pivot_x) / k
+        k = k_lo if x_orig < x0 else k_hi
+        x_new = x0 + (x_orig - x0) / k
         corrected[x_new] = y
     return corrected
 
@@ -1565,7 +1642,7 @@ COLOR_FILM_KEYS = [f[0] for f in COLOR_FILMS]
 # replacement (see GAMMA_CORRECT_TARGET's comment for why the internegative
 # route is a separate, not-yet-revisited problem).
 # =========================================================================
-def _direct_print_stage_fn(film_curves, film_ref_d, film_fit):
+def _direct_print_stage_fn(film_ref_d, film_fit):
     """Builds a 2-stage (film -> paper, no internegative) stage-list
     function for one of DIRECT_PRINT_PAPERS. `film_fit` is that film's own
     *_SPLITGAUSS_FIT (one fitted-model tuple per layer, see
@@ -1577,31 +1654,27 @@ def _direct_print_stage_fn(film_curves, film_ref_d, film_fit):
     build_print_cascade() itself finds it for the final stage) as the
     downstream gamma -- not a blended film-wide or paper-wide number -- so
     R/G/B each get the correction their own physical channel actually needs.
-    `film_ref_d[li]` is reused unchanged as the correction's pivot density
-    (see gamma_correct_curve()'s docstring for why recomputing it isn't
-    needed); `na0` (the pivot exposure) is found on the *original* digitized
-    film curve, matching exactly how build_print_cascade() will independently
-    re-find it on the corrected curve (the pivot point is preserved exactly,
-    see gamma_correct_curve()'s docstring)."""
+    `film_ref_d[li]` is passed through unchanged as the corrected stage's own
+    `ref_d` -- build_print_cascade() finds wherever the corrected curve
+    reproduces that density via _find_anchor(), regardless of where
+    gamma_correct_curve() placed it (see that function's own docstring for
+    why no pivot bookkeeping is needed here)."""
     def stage_fn(li, paper, paper_fit):
-        xs, ys = _sc(film_curves[li])
-        na0 = _find_anchor(xs, ys, film_ref_d[li], increasing=False,
-                            start=_detect_lead_noise_start(film_curves[li], False))
         pxs, pys = _sc(paper[li])
         lhg = _find_anchor(pxs, pys, _grey_target_density(pys), increasing=False,
                             start=_detect_lead_noise_start(paper[li], False))
         downstream_gamma = _split_gauss_local_gamma(paper_fit[li], lhg)
-        corrected = gamma_correct_curve(film_fit[li], na0, film_ref_d[li], downstream_gamma)
+        corrected = gamma_correct_curve(film_fit[li], downstream_gamma)
         return [
             (corrected, False, 0, film_ref_d[li]),
             (paper[li], False, _detect_lead_noise_start(paper[li], False), None)]
     return stage_fn
 
 DIRECT_PRINT_STAGE_FNS = {
-    "velvia": _direct_print_stage_fn(VELVIA_CURVES, VELVIA_REF_D, VELVIA_SPLITGAUSS_FIT),
-    "kodachrome64": _direct_print_stage_fn(KODACHROME64_CURVES, KODACHROME64_REF_D, KODACHROME64_SPLITGAUSS_FIT),
-    "provia100f": _direct_print_stage_fn(PROVIA100F_CURVES, PROVIA100F_REF_D, PROVIA100F_SPLITGAUSS_FIT),
-    "ektachrome100d": _direct_print_stage_fn(EKTACHROME100D_CURVES, EKTACHROME100D_REF_D, EKTACHROME100D_SPLITGAUSS_FIT),
+    "velvia": _direct_print_stage_fn(VELVIA_REF_D, VELVIA_SPLITGAUSS_FIT),
+    "kodachrome64": _direct_print_stage_fn(KODACHROME64_REF_D, KODACHROME64_SPLITGAUSS_FIT),
+    "provia100f": _direct_print_stage_fn(PROVIA100F_REF_D, PROVIA100F_SPLITGAUSS_FIT),
+    "ektachrome100d": _direct_print_stage_fn(EKTACHROME100D_REF_D, EKTACHROME100D_SPLITGAUSS_FIT),
 }
 
 # =========================================================================
@@ -1665,7 +1738,7 @@ PAPER_LADDER_FIT = {
     "ExtraPunchy": EXTRAPUNCHY_LADDER_SPLITGAUSS_FIT,
 }
 
-def _negative_gammacorrect_stage_fn(film_curves, film_ref_d, film_fit):
+def _negative_gammacorrect_stage_fn(film_ref_d, film_fit):
     """Builds a NEGATIVE_FILMS stage-list function for a 3-layer camera
     negative: its own curve, gamma-corrected (gamma_correct_curve(), see
     GAMMA_CORRECT_TARGET's comment) against whichever PAPER_LADDER paper is
@@ -1678,14 +1751,11 @@ def _negative_gammacorrect_stage_fn(film_curves, film_ref_d, film_fit):
     replaces the former, uncorrected _negative_stage_fn() (see this
     constant block's own comment for why the correction was added)."""
     def stage_fn(li, paper, paper_fit):
-        xs, ys = _sc(film_curves[li])
-        na0 = _find_anchor(xs, ys, film_ref_d[li], increasing=True,
-                            start=_detect_lead_noise_start(film_curves[li], True))
         pxs, pys = _sc(paper[li])
         lhg = _find_anchor(pxs, pys, _grey_target_density(pys), increasing=True,
                             start=_detect_lead_noise_start(paper[li], True))
         downstream_gamma = _split_gauss_local_gamma(paper_fit[li], lhg)
-        corrected = gamma_correct_curve(film_fit[li], na0, film_ref_d[li], downstream_gamma)
+        corrected = gamma_correct_curve(film_fit[li], downstream_gamma)
         return [
             (corrected, True, 0, film_ref_d[li]),
             (paper[li], True, _detect_lead_noise_start(paper[li], True), None)]
@@ -1693,17 +1763,17 @@ def _negative_gammacorrect_stage_fn(film_curves, film_ref_d, film_fit):
 
 NEGATIVE_FILMS = [
     ("negative-portra-400", "Portra400", "Kodak Portra 400", PORTRA400_SENS,
-     _negative_gammacorrect_stage_fn(PORTRA400_CURVES, PORTRA400_REF_D, PORTRA400_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(PORTRA400_REF_D, PORTRA400_SPLITGAUSS_FIT)),
     ("negative-ektar-100", "Ektar100", "Kodak Ektar 100", EKTAR100_SENS,
-     _negative_gammacorrect_stage_fn(EKTAR100_CURVES, EKTAR100_REF_D, EKTAR100_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(EKTAR100_REF_D, EKTAR100_SPLITGAUSS_FIT)),
     ("negative-gold-200", "Gold200", "Kodak Gold 200", GOLD200_SENS,
-     _negative_gammacorrect_stage_fn(GOLD200_CURVES, GOLD200_REF_D, GOLD200_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(GOLD200_REF_D, GOLD200_SPLITGAUSS_FIT)),
     ("negative-ultramax-400", "Ultramax400", "Kodak Ultramax 400", ULTRAMAX400_SENS,
-     _negative_gammacorrect_stage_fn(ULTRAMAX400_CURVES, ULTRAMAX400_REF_D, ULTRAMAX400_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(ULTRAMAX400_REF_D, ULTRAMAX400_SPLITGAUSS_FIT)),
     ("negative-superia-reala", "SuperiaReala", "Fuji Superia Reala", SUPERIA_REALA_SENS,
-     _negative_gammacorrect_stage_fn(SUPERIA_REALA_CURVES, SUPERIA_REALA_REF_D, SUPERIA_REALA_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(SUPERIA_REALA_REF_D, SUPERIA_REALA_SPLITGAUSS_FIT)),
     ("negative-superia-xtra-400", "SuperiaXtra400", "Fuji Superia X-tra 400", SUPERIA_XTRA400_SENS,
-     _negative_gammacorrect_stage_fn(SUPERIA_XTRA400_CURVES, SUPERIA_XTRA400_REF_D, SUPERIA_XTRA400_SPLITGAUSS_FIT)),
+     _negative_gammacorrect_stage_fn(SUPERIA_XTRA400_REF_D, SUPERIA_XTRA400_SPLITGAUSS_FIT)),
 ]
 NEGATIVE_FILM_KEYS = [f[0] for f in NEGATIVE_FILMS]
 

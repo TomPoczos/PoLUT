@@ -92,32 +92,40 @@ def local_gamma(params, x):
     return abs((d_hi - d_lo) * norm.pdf((x - x0) / sigma) / sigma)
 
 
-def stretch_corrected_curve(film_params, pivot_x, pivot_d, downstream_gamma, target, n_samples=81):
-    """Horizontal (exposure-axis-only) stretch of the FITTED film model
-    around (pivot_x, pivot_d), by exactly the factor k that makes the
-    model's own exact local gamma at the pivot, times k, equal
-    target/downstream_gamma -- i.e. Jones's rule satisfied exactly at grey,
+def stretch_corrected_curve(film_params, downstream_gamma, target, n_samples=81):
+    """Horizontal (exposure-axis-only) stretch of the FITTED film model,
+    toe (x<x0) and shoulder (x>=x0) by INDEPENDENT factors k_lo/k_hi, each
+    chosen so that half's own natural local gamma at the toe/shoulder
+    junction x0 (peak/sigma_lo or peak/sigma_hi), times downstream_gamma,
+    equals target -- i.e. Jones's rule satisfied on each half's own terms,
     using the film's own real fitted shape (not a straight line, not a
-    window-truncated hybrid). See generate_film_looks.py's
-    GAMMA_CORRECT_TARGET comment for why this replaces the two piecewise
-    mechanisms tried before. Density values are untouched (so the model's
-    own real fitted d_lo/d_hi -- effectively the film's real Dmin/Dmax --
-    are exactly preserved, just reached over a wider, stretched exposure
-    range); only exposure positions are relabeled.
+    window-truncated hybrid, and not one shared factor derived from
+    whichever half a real-world reference exposure happened to land in --
+    see generate_film_looks.py's gamma_correct_curve() docstring for why a
+    single shared k measurably failed: every material here has
+    sigma_lo != sigma_hi by design, so reusing one half's factor for the
+    other over- or under-corrects it). Density values are untouched (so the
+    model's own real fitted d_lo/d_hi -- effectively the film's real
+    Dmin/Dmax -- are exactly preserved, just reached over a wider, stretched
+    exposure range); only exposure positions are relabeled, anchored at the
+    model's own x0 (mapping to itself, so the two independently-stretched
+    halves stay continuous there).
 
     Returns a sampled curve dict (n_samples points, densely covering the
     range where the model moves perceptibly, i.e. within a few sigma of
     x0) for generate_film_looks.py's existing dict-based cascade machinery.
     """
     x0, d_lo, d_hi, sigma_lo, sigma_hi = film_params
-    gamma_at_pivot = local_gamma(film_params, pivot_x)
-    k = target / (downstream_gamma * gamma_at_pivot)
+    peak = abs(d_hi - d_lo) * norm.pdf(0.0)
+    k_lo = target / (downstream_gamma * (peak / sigma_lo))
+    k_hi = target / (downstream_gamma * (peak / sigma_hi))
     # Sample the ORIGINAL model over a wide range (+/- 8 sigma each side of
     # x0, comfortably covering >99.9999% of the CDF's range), then stretch
-    # exposure positions around the pivot by 1/k.
+    # each half's exposure positions around x0 by its own 1/k.
     xs_orig = np.linspace(x0 - 8 * sigma_lo, x0 + 8 * sigma_hi, n_samples)
     ys = split_gaussian_cdf(xs_orig, *film_params)
-    xs_new = pivot_x + (xs_orig - pivot_x) / k
+    ks = np.where(xs_orig < x0, k_lo, k_hi)
+    xs_new = x0 + (xs_orig - x0) / ks
     return {float(xn): float(yn) for xn, yn in zip(xs_new, ys)}
 
 
@@ -168,7 +176,7 @@ def main():
                 lhg = gfl._find_anchor(pxs, pys, gfl._grey_target_density(pys),
                                         increasing=False, start=gfl._detect_lead_noise_start(paper[li], False))
                 downstream_gamma = local_gamma(pparams, lhg)
-                corrected = stretch_corrected_curve(fparams, na0, refd[li], downstream_gamma, target)
+                corrected = stretch_corrected_curve(fparams, downstream_gamma, target)
                 start = 0
                 stages = [(corrected, False, start, refd[li]),
                           (paper[li], False, gfl._detect_lead_noise_start(paper[li], False), None)]
@@ -244,7 +252,7 @@ def main():
                 lhg = gfl._find_anchor(pxs, pys, gfl._grey_target_density(pys),
                                         increasing=True, start=gfl._detect_lead_noise_start(paper[li], True))
                 downstream_gamma = local_gamma(pparams, lhg)
-                corrected = stretch_corrected_curve(fparams, na0, refd[li], downstream_gamma, target)
+                corrected = stretch_corrected_curve(fparams, downstream_gamma, target)
                 stages = [(corrected, True, 0, refd[li]),
                           (paper[li], True, gfl._detect_lead_noise_start(paper[li], True), None)]
                 xfer = gfl.build_print_cascade(stages)
