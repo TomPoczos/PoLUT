@@ -135,23 +135,18 @@ def pqenc(c):
     cp=c**_PQ_M1
     return ((_PQ_C1+_PQ_C2*cp)/(1.0+_PQ_C3*cp))**_PQ_M2
 
-def _make_ssf(xyz2rgb):
-    ssf={}
-    for wl in range(400,710,10):
-        x,y,z = CIE[wl]
-        ssf[wl] = tuple(max(sum(xyz2rgb[r][c]*v for c,v in enumerate((x,y,z))),0) for r in range(3))
-    return ssf
-_SSF_ADOBE = _make_ssf(_MA_ADOBE)
-_SSF_REC2020 = _make_ssf(_MA_REC2020)
-
-# name -> (display label, XYZ->RGB table for _weights(), RGB->XYZ matrix for
-# hk_mul(), decode E-encoded->linear, encode linear->E-encoded). Selected once
-# in main() via --colorspace and threaded through the pipeline; default stays
-# Adobe RGB so the committed .cube files are unaffected unless --colorspace
-# pq2020 is passed explicitly.
+# name -> (display label, RGB->XYZ matrix for hk_mul(), decode
+# E-encoded->linear, encode linear->E-encoded). Selected once in main() via
+# --colorspace and threaded through the pipeline; default stays Adobe RGB so
+# the committed .cube files are unaffected unless --colorspace pq2020 is
+# passed explicitly. Used to carry an `ssf` (XYZ->RGB CMF table) entry for
+# _weights(), Tri-X's fixed-weight colour->exposure model; removed along with
+# _weights() itself when Ticket 21 moved Tri-X onto the same per-pixel
+# spectral reconstruction every color film already uses (see
+# trix_exposure_grid()) -- nothing computes an XYZ->RGB CMF table anymore.
 COLORSPACES = {
-    "adobergb": dict(name="adobergb", label="Adobe RGB",   ssf=_SSF_ADOBE,   rgb2xyz=_MA_INV_ADOBE,   dec=adec, enc=aenc),
-    "pq2020":   dict(name="pq2020",   label="PQ Rec.2020", ssf=_SSF_REC2020, rgb2xyz=_MA_INV_REC2020, dec=pqdec, enc=pqenc),
+    "adobergb": dict(name="adobergb", label="Adobe RGB",   rgb2xyz=_MA_INV_ADOBE,   dec=adec, enc=aenc),
+    "pq2020":   dict(name="pq2020",   label="PQ Rec.2020", rgb2xyz=_MA_INV_REC2020, dec=pqdec, enc=pqenc),
 }
 
 # =========================================================================
@@ -604,47 +599,34 @@ FILTER_ORDER = ["NoFilter","Yellow8","Orange21","Red25","Green58","Blue47"]
 GREY = 0.18
 
 # =========================================================================
-# Weight computation
-# =========================================================================
-def _weights(sens, filt=None, ssf=_SSF_ADOBE):
-    """Compute colour->grey weights from spectral sensitivity + optional filter.
-    `ssf` is the CIE->RGB primary table for whichever colour space is being
-    targeted (see COLORSPACES); defaults to Adobe RGB."""
-    sk=sorted(sens); sv=[sens[k] for k in sk]
-    ft=None
-    if filt:
-        fk=sorted(filt); fv=[filt[k] for k in fk]; ft=(fk,fv)
-    wr=wg=wb=0.0
-    for wl in range(400,710,10):
-        s=_il10(sk,sv,wl)
-        if ft: s*=_il(ft[0],ft[1],wl)/100.0
-        d=D65[wl]; r,g,b=ssf[wl]
-        wr+=s*d*r; wg+=s*d*g; wb+=s*d*b
-    tot=wr+wg+wb
-    return (wr/tot,wg/tot,wb/tot) if tot>0 else (1/3,1/3,1/3)
-
-
-# =========================================================================
 # Spectral reconstruction (Jakob & Hanika 2019) -- see Ticket 16
-# (tasks/16-fixed-rgb-weights-no-spectral-reconstruction.md)
+# (tasks/16-fixed-rgb-weights-no-spectral-reconstruction.md) and Ticket 21
+# (tasks/21-trix-geometric-mean-not-physical-model.md)
 # =========================================================================
-# `_weights()` above collapses a whole spectral sensitivity curve against
-# D65 and a FIXED per-channel weight triple, once -- every color film used
-# to derive its per-pixel exposure as a plain `R*wr + G*wg + B*wb` dot
-# product against that fixed triple (`layer_weights()`, now removed). That is
+# Every color film's per-layer exposure used to come from a FIXED per-channel
+# weight triple, computed once by integrating a whole spectral sensitivity
+# curve against D65 and the colour space's own RGB primaries
+# (`layer_weights()`, now removed) -- every pixel's exposure was then just a
+# plain `R*wr + G*wg + B*wb` dot product against that fixed triple. That is
 # mathematically equivalent to assuming every photographed colour is exactly
 # a linear-light mixture of the three RGB primaries' own spectral power
 # distributions -- real reflectance spectra are not that, and a real film's
 # spectral sensitivity is not colorimetric, so two real colours that are
 # metamers under the CIE 1931 observer (same RGB triple) can and do expose
-# real film differently. `_weights()` itself is unchanged and still used for
-# Tri-X (B&W has no per-channel colour to get wrong the same way -- see the
-# ticket's own scope note); every COLOR_FILMS/NEGATIVE_FILMS colour film
-# below instead reconstructs a real, physically-plausible reflectance
-# spectrum per LUT grid point (Jakob & Hanika 2019, "A Low-Dimensional
-# Function Space for Efficient Spectral Upsampling," Computer Graphics Forum
-# 38(2), 147-155) and integrates each layer's own real digitized sensitivity
-# curve against THAT instead of against the primaries themselves. See
+# real film differently. Tri-X's own analogous fixed-weight function,
+# `_weights()`, was believed exempt from this ("B&W has no per-channel colour
+# to get wrong the same way") -- Ticket 21 found that reasoning conflates
+# hue-contamination (a color-only symptom) with the underlying cause (film
+# sensitivity isn't colorimetric, full stop): a saturated red rendered
+# *paper black* under `_weights()` + the geometric mean it fed, when real
+# panchromatic Tri-X's actual spectral sensitivity (strong through ~640nm)
+# exposes a red flower *brighter than grey*. `_weights()` is gone; every
+# color film below AND Tri-X (via `trix_exposure_grid()`) now reconstructs a
+# real, physically-plausible reflectance spectrum per LUT grid point (Jakob &
+# Hanika 2019, "A Low-Dimensional Function Space for Efficient Spectral
+# Upsampling," Computer Graphics Forum 38(2), 147-155) and integrates each
+# layer's (or Tri-X's one panchromatic curve's) own real digitized
+# sensitivity against THAT instead of against the primaries themselves. See
 # papers/spectral_upsampling/README.md for the full research trail
 # (including the reference C++ implementation and the independent Python
 # port this project's own coefficient tables were fit with) and
@@ -796,6 +778,36 @@ def layer_exposure_grid(sens_list, spectrum_grid):
             continue
         out.append([sum(s*w for s,w in zip(spectrum,sens_d65))/tot for spectrum in spectrum_grid])
     return out
+
+def trix_exposure_grid(sens, filt, spectrum_grid):
+    """Per-grid-point Tri-X exposure -- the `_weights()` replacement (Ticket
+    21). Tri-X has one panchromatic sensitivity curve, not a list of dye
+    layers, but a real Wratten filter over the lens attenuates the light
+    reaching it wavelength-by-wavelength same as any other spectral
+    transmission, so the per-wavelength weight is
+    `sens(lambda) * filter_transmission(lambda)/100 * D65(lambda)` (filter
+    term omitted entirely when `filt` is None, i.e. NoFilter) instead of
+    `layer_exposure_grid()`'s plain `sens(lambda) * D65(lambda)`. Normalizing
+    by the sum of those weights is exactly the photographer's own
+    filter-factor compensation -- it's what keeps an 18%-grey card metering
+    the same through a yellow filter as without one -- and, as in
+    `layer_exposure_grid()`, is also what guarantees an achromatic grey
+    pixel's (exactly flat, see `_rgb_to_sigmoid_coeffs()`'s mono case)
+    reconstructed spectrum still yields exposure == the grey reflectance
+    value itself, preserving GREY=0.18 unchanged."""
+    sk=sorted(sens); sv=[sens[k] for k in sk]
+    ft=None
+    if filt:
+        fk=sorted(filt); fv=[filt[k] for k in fk]; ft=(fk,fv)
+    weights=[]
+    for wl in _SPECTRAL_WAVELENGTHS:
+        s=_il10(sk,sv,wl)
+        if ft: s*=_il(ft[0],ft[1],wl)/100.0
+        weights.append(s*D65[wl])
+    tot=sum(weights)
+    if tot<=0:
+        return [0.0]*len(spectrum_grid)
+    return [sum(s*w for s,w in zip(spectrum,weights))/tot for spectrum in spectrum_grid]
 
 # =========================================================================
 # Cascade builders
@@ -1514,27 +1526,30 @@ def build_trix_cascade(paper):
 # =========================================================================
 # LUT writers
 # =========================================================================
-def write_bw_lut(path, title, weights, xfer, size, use_hk, cs=COLORSPACES["adobergb"]):
-    """B&W LUT: geometric mean + optional HK → negative×print cascade.
-    `cs` picks the LUT module application colour space (see COLORSPACES);
-    defaults to Adobe RGB."""
-    wr,wg,wb=weights; n=size-1
+def write_bw_lut(path, title, exposure_grid, xfer, size, use_hk, cs=COLORSPACES["adobergb"]):
+    """B&W LUT: per-pixel spectral exposure + optional HK → negative×print
+    cascade. `cs` picks the LUT module application colour space (see
+    COLORSPACES); defaults to Adobe RGB. `exposure_grid` is a per-grid-point
+    exposure list from trix_exposure_grid() (Ticket 21 — real spectral
+    reconstruction per pixel, replacing the old fixed-weight-triple
+    `R**wr * G**wg * B**wb` geometric mean), indexed in the same
+    (bi,gi,ri)-nested order as this function's own grid loop."""
+    n=size-1
     dec,enc,rgb2xyz,label=cs["dec"],cs["enc"],cs["rgb2xyz"],cs["label"]
     with open(path,'w') as f:
         f.write(f'TITLE "{title}"\n')
-        f.write(f'# {label} in/out. REPLACES AgX. R={wr:.4f} G={wg:.4f} B={wb:.4f}\n')
+        f.write(f'# {label} in/out. REPLACES AgX. {title}.\n')
         f.write(f'LUT_3D_SIZE {size}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n\n')
+        idx=0
         for bi in range(size):
             for gi in range(size):
                 for ri in range(size):
                     R,G,B=dec(ri/n),dec(gi/n),dec(bi/n)
-                    E=1.0
-                    if wr>0: E*=R**wr if R>0 else 0.0
-                    if E>0 and wg>0: E*=G**wg if G>0 else 0.0
-                    if E>0 and wb>0: E*=B**wb if B>0 else 0.0
+                    E=exposure_grid[idx]
                     if use_hk and E>1e-9: E*=hk_mul(R,G,B,rgb2xyz)
                     v=enc(xfer(E))
                     f.write(f'{v:.6f} {v:.6f} {v:.6f}\n')
+                    idx+=1
 
 def write_color_lut(path, title, lw, xfers, size, use_hk, cs=COLORSPACES["adobergb"]):
     """Color LUT: per-layer exposure → per-layer film/paper cascade → RGB out.
@@ -1802,7 +1817,7 @@ def main():
 
     # --- Tri-X ---
     if 'trix' in only:
-        trix_weights={fn:_weights(TRIX_SENS,FILTERS.get(fn),ssf=cs["ssf"]) for fn in FILTER_ORDER}
+        trix_grids={fn:trix_exposure_grid(TRIX_SENS,FILTERS.get(fn),get_spectrum_grid(args.size,cs)) for fn in FILTER_ORDER}
         for variant,use_hk in [("trix_classic",False),("trix_modern",True)]:
             outdir=os.path.join(args.output,variant)
             os.makedirs(outdir,exist_ok=True)
@@ -1813,7 +1828,7 @@ def main():
                     fname=f"TriX_{fn}_{look}.cube"
                     t1=time.time()
                     write_bw_lut(os.path.join(outdir,fname),
-                                 f"Tri-X {fn} {look}",trix_weights[fn],xfer,args.size,use_hk,cs=cs)
+                                 f"Tri-X {fn} {look}",trix_grids[fn],xfer,args.size,use_hk,cs=cs)
                     total+=1
                     print(f"  {fname:<42s} ({time.time()-t1:.1f}s)")
 

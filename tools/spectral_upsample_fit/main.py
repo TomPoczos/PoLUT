@@ -59,7 +59,7 @@ data instead of colour-science's bundled datasets: this project already hand-
 maintains its own CIE 1931 2-degree observer + D65 tables (400-700nm, 10nm
 steps — CIE/D65 dicts) and its own Adobe RGB / Rec.2020 primary matrices
 (_MA_ADOBE/_MA_INV_ADOBE, _MA_REC2020/_MA_INV_REC2020), used by every other
-calculation in the file (_weights(), hk_mul(), _make_ssf()). Using a
+calculation in the file (hk_mul(), layer_exposure_grid(), trix_exposure_grid()). Using a
 different CMFS/illuminant/primaries dataset here (even a very close one)
 would make the baked table subtly inconsistent with the domain
 generate_film_looks.py actually integrates sensitivity curves over at
