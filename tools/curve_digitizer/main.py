@@ -32,8 +32,8 @@ import fitz  # PyMuPDF
 import numpy as np
 
 HERE = Path(__file__).parent
-DATA_ROOT = HERE.parent.parent  # film_paper_filter_data/
-REPO_ROOT = DATA_ROOT.parent  # PoLUT/
+REPO_ROOT = HERE.parent.parent  # PoLUT/
+DATA_ROOT = REPO_ROOT / "film_paper_filter_data"
 PDF_DIR = REPO_ROOT / "papers"  # source datasheet PDFs live here, not in film_paper_filter_data
 
 

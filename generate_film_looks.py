@@ -246,8 +246,8 @@ VELVIA_CURVES = [
 # =========================================================================
 # Film data — EASTMAN Color Internegative II Film 5272/7272 (duplicating
 # negative made from a reversal/slide original; the middle stage of Velvia's
-# print cascade below). Digitized via film_paper_filter_data/tools/
-# curve_digitizer/ from the real Kodak/Eastman datasheet TI1301 (papers/
+# print cascade below). Digitized via tools/curve_digitizer/ from the real
+# Kodak/Eastman datasheet TI1301 (papers/
 # kodak_internegative_ii_5272_TI1301.pdf) — vector-precise extraction, real
 # monotonicity enforced at the source (see that tool's README). Layer order
 # reordered from the digitizer's own blue/green/red output to match

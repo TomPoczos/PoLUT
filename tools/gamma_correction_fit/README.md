@@ -101,7 +101,7 @@ regression) is the part that actually needs a numerical library; once the
 five parameters per layer are fit, evaluating the model and its derivative
 at a point is closed-form, and `generate_film_looks.py` only ever needs to
 *evaluate*, not re-fit. This mirrors the existing pattern of
-`film_paper_filter_data/tools/curve_digitizer/`: a separate, dependency-
+`tools/curve_digitizer/`: a separate, dependency-
 heavy, offline tool that *produces* real data, transcribed as plain
 constants into the dependency-free main generator, not run at generation
 time.
