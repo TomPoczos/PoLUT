@@ -1,0 +1,80 @@
+{
+  "source_pdf": "film/kodak/ti2323-Ektachrome_EIR.pdf",
+  "brand": "kodak",
+  "product_name": "Ektachrome Infrared EIR",
+  "application_area": "photography",
+  "film_type": "reversal",
+  "medium": "color",
+  "iso": 320,
+  "year": 2005,
+  "layer_order": [
+    "red_cyan_forming_layer",
+    "green_magenta_forming_layer",
+    "blue_yellow_forming_layer"
+  ],
+  "extraction_method": "vector_position",
+  "print_route": null,
+  "intrapositive_route": false,
+  "charts": {
+    "characteristic_curve": {
+      "page_index": 6,
+      "x_label": "log_exposure_lux_seconds",
+      "y_label": "density_status_m",
+      "x_axis_calibration": {
+        "tick_matches": [
+          [
+            372.4579772949219,
+            -3.0
+          ],
+          [
+            418.6196594238281,
+            -2.0
+          ],
+          [
+            463.9595031738281,
+            -1.0
+          ],
+          [
+            510.0937805175781,
+            0.0
+          ],
+          [
+            555.0420227050781,
+            1.0
+          ]
+        ],
+        "fit_slope": 0.02189857501035991,
+        "fit_intercept": -11.161696246363295
+      },
+      "y_axis_calibration": {
+        "tick_matches": [
+          [
+            128.4374542236328,
+            4.0
+          ],
+          [
+            174.5506134033203,
+            3.0
+          ],
+          [
+            220.0883331298828,
+            2.0
+          ],
+          [
+            266.34571838378906,
+            1.0
+          ],
+          [
+            313.32371520996094,
+            0.0
+          ]
+        ],
+        "fit_slope": -0.02166466668887225,
+        "fit_intercept": 6.778124188749553
+      },
+      "curves": {},
+      "qa_overlay_png": "kodak_ektachromeinfraredeir_iso320_2005_characteristic_curve_qa_overlay.png"
+    }
+  },
+  "digitizer_notes": "Reversal-film 'CURVES' page template (Characteristic Curves above Modulation-Transfer/Diffuse-rms-Granularity, not alongside Spectral-Sensitivity like the negative-film template); curves ID'd by inline B/G/R labels (Strategy D, vector_position). print_route left null unless the datasheet's own text was checked for a stated recommendation."
+}
