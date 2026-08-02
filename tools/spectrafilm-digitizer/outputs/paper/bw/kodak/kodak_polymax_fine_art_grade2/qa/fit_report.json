@@ -1,0 +1,31 @@
+{
+  "exposure_anchor": {
+    "grade": "grade2",
+    "panel": "characteristic_curve_filterset2",
+    "x_speed_kodak_chart": 1.2510464,
+    "applied_shift": -1.2510464
+  },
+  "note": "no development_time family -- see module docstring; density_over_min=0.6 (ISO 6:1993 paper speed criterion), not the 1.0 film convention",
+  "curves": {
+    "grade2": {
+      "r_squared": 0.9999929517528293,
+      "max_residual": 0.006035053609330572,
+      "base_density": 0.0426,
+      "centers": [
+        0.5131220860189195,
+        -0.19144005323814534,
+        0.0979608030577288
+      ],
+      "amplitudes": [
+        1.2387309478800819,
+        0.5612495862280759,
+        0.46813366858020844
+      ],
+      "sigmas": [
+        0.17837563276096774,
+        0.17314422970000395,
+        0.12643609972759082
+      ]
+    }
+  }
+}
