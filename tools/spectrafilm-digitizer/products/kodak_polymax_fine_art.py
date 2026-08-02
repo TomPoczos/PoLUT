@@ -24,7 +24,7 @@ time, is what varies between them.
 Every curve here -- all 7 real POLYMAX grades (-1..5) plus the spectral
 sensitivity trace -- is digitized fresh from the PDF via this project's own
 digitizer_core.py/kodak_helpers.py pipeline in this file, with its own QA
-overlay, the same standard every curve in kodak_trix400.py meets. (An
+overlay, the same standard every curve in kodak_trix400tx.py meets. (An
 earlier version of this file reused already-digitized points for grade 2
 from an earlier PoLUT corpus pass, consolidated-data/paper/kodak/
 black-and-white/kodak_polymaxfineartpaper_2005.json -- confirmed, on
@@ -84,7 +84,7 @@ Two things that don't vary per grade:
    sec, the one real shared condition, in the minutes unit the schema
    actually expects) for every grade -- a real value, not a proxy for grade.
 
-Unlike kodak_trix400.py, no exposure_calibration.py cross-calibration step
+Unlike kodak_trix400tx.py, no exposure_calibration.py cross-calibration step
 is needed here: the print stage's own midgray auto-normalization
 (spektrafilm's printing.py::_compute_exposure_factor_midgray) cancels out a
 paper's absolute log_sensitivity scale regardless of what it is -- that
@@ -171,7 +171,7 @@ def _characteristic_curve_chart(panel_id):
         extraction_method="vector_position", monotonic_direction="increasing",
         min_trace_points=10,  # clean panel, confirmed via extract_traces_in_region probe:
                                # exactly 3/3/2 real traces at this threshold, no small
-                               # label-artifact fragments like kodak_trix400.py's D-76 panel
+                               # label-artifact fragments like kodak_trix400tx.py's D-76 panel
         metadata={"developer": "Dektol (1:2)", "process": "Tray, 90 sec, 20C (68F)",
                   "densitometry": "Reflection", "filter_set": panel_id},
     )
@@ -429,7 +429,7 @@ def build_grade(grade):
     shift = -x_speed
 
     xs = np.array([p[0] for p in points]) + shift
-    # Fit NET density (above base) -- see kodak_trix400.py's comment / density_model.py's
+    # Fit NET density (above base) -- see kodak_trix400tx.py's comment / density_model.py's
     # own module docstring: compute_density_spectral() adds base_density back separately.
     ys = np.array([p[1] for p in points]) - base_density
     fit = dm.fit_norm_cdfs(xs, ys, n_layers=N_LAYERS)

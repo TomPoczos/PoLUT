@@ -3,27 +3,32 @@ Digitizes Kodak/etc. datasheets into darktable spektrafilm module profiles.
 
 Usage:
     uv run main.py                          # build every product below
-    uv run main.py --only kodak_trix400      # build one (or more) by stock slug
+    uv run main.py --only kodak_trix400tx_d76_9min      # build one (or more) by stock slug
     uv run main.py --only kodak_polymax_fine_art_grade2 kodak_polymax_fine_art_grade3
 
 Each product exposes build() -> (source_profile, pack_profile) and an OUT_DIR, following
-products/kodak_trix400.py's pattern -- see that module's own docstring for the digitize ->
+products/kodak_trix400tx.py's pattern -- see that module's own docstring for the digitize ->
 fit -> assemble -> write pipeline shape. Two module shapes are supported: a single-stock
-module (build()/OUT_DIR at module level, one stock per file -- kodak_trix400.py) and a
-multi-stock module for a closely-related family sharing one source chart/pipeline (its own
+module (build()/OUT_DIR at module level, one stock per file) and a multi-stock module for a
+closely-related family sharing one source chart/pipeline (its own
 PRODUCTS = {stock_slug: <has .build()/.OUT_DIR>} dict, merged in below --
-kodak_polymax_fine_art.py's 7 print-paper grades). Adding a new single stock: write
-products/<new_stock>.py, add it to PRODUCTS below. Adding a new family: follow
-kodak_polymax_fine_art.py's own shape and merge its PRODUCTS dict in the same way.
+kodak_polymax_fine_art.py's 7 print-paper grades; kodak_trix400tx.py/_txp.py/_txt.py's real
+per-development-time Tri-X stocks, one PRODUCTS entry per real digitized development time,
+no development-time slider -- see trix_common.py's own module docstring for why). Adding a
+new single stock: write products/<new_stock>.py, add it to PRODUCTS below. Adding a new
+family: follow kodak_polymax_fine_art.py's own shape and merge its PRODUCTS dict in the
+same way.
 """
 
 import argparse
 
-from products import kodak_polymax_fine_art, kodak_trix400
+from products import kodak_polymax_fine_art, kodak_trix400tx, kodak_trix400txp, kodak_trix400txt
 import validate_external
 
 PRODUCTS = {
-    "kodak_trix400": kodak_trix400,
+    **kodak_trix400tx.PRODUCTS,
+    **kodak_trix400txp.PRODUCTS,
+    **kodak_trix400txt.PRODUCTS,
     **kodak_polymax_fine_art.PRODUCTS,
 }
 

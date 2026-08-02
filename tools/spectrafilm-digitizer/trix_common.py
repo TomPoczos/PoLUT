@@ -32,7 +32,6 @@ import numpy as np
 
 import fitz
 
-import canonical_grids as grids
 import density_model as dm
 import spektra_profile as sp
 from digitizer_core import render_qa_overlay
@@ -107,18 +106,22 @@ def write_single_dev_time_stock(
 ):
     """Writes one fully self-contained single-development-time stock
     (n_dev=1 from the start, not collapsed from a wider family) to
-    out_root/<stock>/."""
+    out_root/<stock>/. `fit` is a density_model.NormCdfsFit already fit on
+    this one development time's own net-density points (log_exposure grid
+    is grids.LOG_EXPOSURE, the shared canonical grid)."""
     out_dir = out_root / stock
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    density_curves = fit["total"][:, None]                      # (256,1)
-    density_curves_layers = fit["layers"][:, :, None]            # (256,n_layers,1)
+    total = dm.evaluate_total(fit, log_exposure)                  # (256,)
+    layers = dm.evaluate_layers(fit, log_exposure)                # (256,n_layers)
+    density_curves = total[:, None]                               # (256,1)
+    density_curves_layers = layers[:, :, None]                    # (256,n_layers,1)
     base_density = np.full((81, 1), base_density_scalar)
     density_curves_model = {
         "model_type": "norm_cdfs",
-        "centers": fit["centers"][None, :],
-        "amplitudes": fit["amplitudes"][None, :],
-        "sigmas": fit["sigmas"][None, :],
+        "centers": fit.centers[None, :],
+        "amplitudes": fit.amplitudes[None, :],
+        "sigmas": fit.sigmas[None, :],
     }
 
     info = sp.build_info(
