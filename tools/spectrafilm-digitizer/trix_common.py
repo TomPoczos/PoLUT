@@ -27,6 +27,8 @@ guesswork-dressed-as-science this family's whole design avoids.
 """
 
 import json
+import os
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
@@ -47,6 +49,52 @@ def speed_point_x(points, base_density, criterion=1.0):
     ys = np.array([p[1] for p in points])
     order = np.argsort(ys)
     return float(np.interp(base_density + criterion, ys[order], xs[order]))
+
+
+def _fit_one(dev_t, xs, ys, n_layers):
+    """Module-level (picklable) worker for ProcessPoolExecutor -- must stay
+    top-level, not a closure/lambda, or it can't cross the process boundary."""
+    return dev_t, dm.fit_norm_cdfs(xs, ys, n_layers=n_layers)
+
+
+def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
+    """Fits every development time's own norm_cdfs model in a separate OS
+    process (ProcessPoolExecutor, not threads -- this is CPU-bound
+    scipy.optimize work with n_restarts=6 per curve that barely releases the
+    GIL, so threads would just add scheduling overhead on top of fully
+    serialized execution; same reasoning and same measured lesson as
+    ../curve_digitizer/product.py's own run_products_parallel(), which
+    found 8 threads SLOWER than sequential but ProcessPoolExecutor a real
+    ~3.8x speedup on the same CPU-bound workload).
+
+    Returns {dev_t: (fit, base_density)}, same shape _fit_bracket's callers
+    already expect -- QA plotting stays in the calling (main) process
+    afterward, not inside the worker, since matplotlib figure rendering
+    across a process pool is extra complexity for a step that isn't the
+    actual bottleneck here."""
+    base_densities = {}
+    xs_by_dev = {}
+    ys_by_dev = {}
+    for dev_t in dev_times:
+        points = curves_by_dev[dev_t]
+        xs = np.array([p[0] for p in points]) + shift
+        ys_absolute = np.array([p[1] for p in points])
+        base_density = float(ys_absolute.min())
+        base_densities[dev_t] = base_density
+        xs_by_dev[dev_t] = xs
+        ys_by_dev[dev_t] = ys_absolute - base_density
+
+    workers = min(len(dev_times), os.cpu_count() or 4)
+    fits = {}
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_fit_one, dev_t, xs_by_dev[dev_t], ys_by_dev[dev_t], n_layers)
+                   for dev_t in dev_times]
+        for fut in futures:
+            dev_t, fit = fut.result()
+            fits[dev_t] = fit
+            print(f"  {label} {dev_t:g} min: R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
+
+    return {dev_t: (fits[dev_t], base_densities[dev_t]) for dev_t in dev_times}, xs_by_dev, ys_by_dev
 
 
 def write_raw_and_qa(pdf_path, chart, result, out_dir):

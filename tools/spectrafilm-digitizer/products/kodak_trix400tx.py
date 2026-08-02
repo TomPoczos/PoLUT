@@ -185,10 +185,13 @@ def _spectral_sensitivity_chart():
 
 def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir):
     """Anchors + fits one Characteristic-Curve bracket (a set of curves from
-    ONE panel/developer). Returns {dev_t: (fit, base_density)} plus the
-    applied shift, for QA printing. Writes a density_fit_<label>_<t>min.png
-    per development time (fit-vs-digitized-points QA, not just the raw
-    curve-vs-source-chart QA already written by write_raw_and_qa)."""
+    ONE panel/developer) -- one scipy.optimize.curve_fit call per
+    development time, in its own OS process (tc.fit_dev_times_parallel(),
+    see its own docstring for why processes not threads). Returns
+    {dev_t: (fit, base_density)} plus the applied shift. Writes a
+    density_fit_<label>_<t>min.png per development time (fit-vs-digitized-
+    points QA, not just the raw curve-vs-source-chart QA already written by
+    write_raw_and_qa) -- plotting stays sequential in the main process."""
     rep_dev = dev_times[rep_idx]
     rep_points = curves_by_dev[rep_dev]
     rep_base = min(y for _, y in rep_points)
@@ -196,17 +199,12 @@ def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir):
     shift = -x_speed_rep
 
     qa_dir.mkdir(parents=True, exist_ok=True)
-    fits = {}
+    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+        curves_by_dev, dev_times, shift, N_LAYERS, label,
+    )
     for dev_t in dev_times:
-        points = curves_by_dev[dev_t]
-        xs = np.array([p[0] for p in points]) + shift
-        ys_absolute = np.array([p[1] for p in points])
-        base_density = float(ys_absolute.min())
-        ys = ys_absolute - base_density
-        fit = dm.fit_norm_cdfs(xs, ys, n_layers=N_LAYERS)
-        fits[dev_t] = (fit, base_density)
-        print(f"  {label} {dev_t:g} min: R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
-        dm.plot_fit_qa(xs, ys, fit, grids.LOG_EXPOSURE,
+        fit, _ = fits[dev_t]
+        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
                         title=f"Kodak Tri-X 400 (TX), {label} {dev_t:g} min (net density, above base)",
                         out_path=qa_dir / f"density_fit_{label.lower().replace('-', '')}_{dev_t:g}min.png")
     return fits, shift, rep_dev
@@ -246,6 +244,7 @@ def build_all():
 
     d76_ci_chart = _d76_ci_chart()
     d76_ci_result = digitize_chart(d76_ci_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, d76_ci_chart, d76_ci_result, OUT_ROOT / "large_tank_d76")
     d76_ci_points = d76_ci_result["curves"]["D-76"]["points"]
 
     for dev_t in D76_DEV_TIMES:
@@ -276,6 +275,7 @@ def build_all():
 
     tmax_ci_chart = _tmax_ci_chart()
     tmax_ci_result = digitize_chart(tmax_ci_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, tmax_ci_chart, tmax_ci_result, OUT_ROOT / "small_tank_tmax")
     tmax_ci_points = tmax_ci_result["curves"]["T-MAX"]["points"]
 
     for dev_t in TMAX_DEV_TIMES:

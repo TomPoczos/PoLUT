@@ -161,22 +161,18 @@ def build_all():
 
     qa_dir = OUT_ROOT / "qa"
     qa_dir.mkdir(parents=True, exist_ok=True)
-    fits = {}
+    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+        curves_by_dev, DEV_TIMES, shift, N_LAYERS, "HC-110",
+    )
     for dev_t in DEV_TIMES:
-        points = curves_by_dev[dev_t]
-        xs = np.array([p[0] for p in points]) + shift
-        ys_absolute = np.array([p[1] for p in points])
-        base_density = float(ys_absolute.min())
-        ys = ys_absolute - base_density
-        fit = dm.fit_norm_cdfs(xs, ys, n_layers=N_LAYERS)
-        fits[dev_t] = (fit, base_density)
-        print(f"  HC-110 {dev_t:g} min: R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
-        dm.plot_fit_qa(xs, ys, fit, grids.LOG_EXPOSURE,
+        fit, _ = fits[dev_t]
+        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
                         title=f"Kodak Tri-X Pan Professional sheet (TXT), HC-110B {dev_t:g} min (net density, above base)",
                         out_path=qa_dir / f"density_fit_hc110b_{dev_t:g}min.png")
 
     ci_chart = _ci_chart()
     ci_result = digitize_chart(ci_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, ci_chart, ci_result, OUT_ROOT)
     ci_points = ci_result["curves"]["HC-110"]["points"]
 
     written = {}

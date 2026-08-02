@@ -130,9 +130,32 @@ def fit_norm_cdfs(log_exposure, density, n_layers=3, n_restarts=6, seed=0):
 
         p0 = np.concatenate([centers0, np.log(amps0), np.log(sigmas0)])
         try:
+            # maxfev=5000, not 40000: measured directly across every real
+            # curve in this project (Tri-X's 14 development-time curves,
+            # Polymax's 7 grades). At maxfev=40000, a restart whose random
+            # init lands in a bad region doesn't converge to something
+            # DIFFERENT/better given more budget -- it just grinds toward
+            # the same optimum other restarts already reach, sometimes
+            # burning 15-20s and tens of thousands of evaluations to get
+            # there (confirmed on Kodak Tri-X D-76 9min: two of six restarts
+            # took 15-20s each, the other four converged to the identical
+            # best R^2 in under half a second). A first attempt at
+            # maxfev=500 seemed to confirm this (D-76 stayed at identical
+            # R^2, ~19x faster) but was NOT safe in general: TXP's 3.5min
+            # curve failed on all 6 restarts at 500 (every restart there
+            # genuinely needs more budget, not just the unlucky ones), while
+            # succeeding cleanly on all 6 at 5000 with the same R^2 as
+            # 40000. 5000 is the value that held up across every real curve
+            # tested, not just the one that happened to be easy -- don't
+            # drop it further without re-measuring against curves harder
+            # than D-76's, and don't raise it back toward 40000 without
+            # re-confirming the slow restarts are still just redundant, not
+            # rescuing a curve nothing else converges on. RuntimeError is
+            # still caught and skipped below, so a failed restart costs
+            # nothing but time.
             popt, _ = curve_fit(
                 lambda x_, *p: _model(x_, *p, n_layers=n_layers),
-                x, y, p0=p0, bounds=(lower, upper), maxfev=40000,
+                x, y, p0=p0, bounds=(lower, upper), maxfev=5000,
             )
         except RuntimeError:
             continue
