@@ -22,7 +22,14 @@ same way.
 
 import argparse
 
-from products import ilford_hp5plus, kodak_polymax_fine_art, kodak_trix400tx, kodak_trix400txp, kodak_trix400txt
+from products import (
+    ilford_delta100,
+    ilford_hp5plus,
+    kodak_polymax_fine_art,
+    kodak_trix400tx,
+    kodak_trix400txp,
+    kodak_trix400txt,
+)
 import validate_external
 
 PRODUCTS = {
@@ -31,7 +38,20 @@ PRODUCTS = {
     **kodak_trix400txt.PRODUCTS,
     **kodak_polymax_fine_art.PRODUCTS,
     ilford_hp5plus.STOCK: ilford_hp5plus,
+    ilford_delta100.STOCK: ilford_delta100,
 }
+# Re-registered here (see products/ilford_delta100.py's own docstring):
+# earlier in this session Delta 100 looked genuinely blocked -- its
+# Characteristic Curve panel has zero vector paths on any available
+# datasheet -- until raster_tracer.py's column-scan pixel tracer (ported
+# from curve_digitizer/raster_tracer.py, built there for Fuji's bitonal
+# scans) was extended here to handle this file's own real artifacts
+# (anti-aliased, not byte-exact bitonal; minor tick-mark stubs off the
+# frame border). ilford_common.build_single_stock_bw_negative's new
+# char_extraction="raster" path is the reusable seam for any FUTURE film
+# on this project whose Characteristic Curve panel turns out to be raster
+# too -- check that first before assuming a new blocker needs its own
+# bespoke pipeline.
 
 
 def main():
