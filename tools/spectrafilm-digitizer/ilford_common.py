@@ -221,25 +221,20 @@ def build_single_stock_bw_negative(
     char_chart = characteristic_curve_chart(pdf_path, char_page_index, char_x_tick_regex, char_y_tick_regex)
     char_result = digitize_chart(char_chart, pdf_path)
     stock_io.write_raw_and_qa(pdf_path, char_chart, char_result, out_root)
-    # points_dense (400 points), not the RDP-simplified `points` (11 for HP5
-    # Plus) -- confirmed on HP5 Plus that fitting against the simplified set
-    # left a wide (~0.4 log_exposure) gap between two consecutive kept
-    # vertices in the toe-to-straight-line transition with nothing
-    # constraining the model's shape in between; fit_norm_cdfs happily hit
-    # both endpoints exactly (R^2=1.00000) via an unphysical near-step
-    # jump instead of the real smooth rise `points_dense` shows is actually
-    # there (confirmed by plotting both fits side by side). RDP
-    # simplification is a fine lossy representation for QA/plotting, where
-    # a human eye fills in the smooth curve between sparse vertices, but
-    # not a safe input for an under-constrained multi-parameter model fit
-    # with only ~11 points spread over a 4-decade exposure range. Tri-X's
-    # own products fit against the simplified set too and haven't shown
-    # this failure mode -- but only because their curves simplify to far
-    # more points (20-30) spread more evenly across the range, not because
-    # the underlying risk doesn't apply there; using the dense set here is
-    # strictly more correct and has no real downside (same real digitized
-    # curve, just resampled finer off the same vector path).
-    points = char_result["curves"]["density"]["points_dense"]
+    # The RDP-simplified `points` (same convention Tri-X's own products fit
+    # against) -- NOT points_dense. An earlier version of this function fit
+    # against points_dense instead, working around a real bug that's now
+    # fixed at its actual source: digitizer_core.py's extract_traces_in_region
+    # was treating Bezier curve control points as literal digitized samples
+    # (HP5 Plus's Characteristic Curve is drawn as just 3 long Bezier
+    # segments, unlike Kodak's finely-segmented polylines), which silently
+    # cut a corner through the toe and left only 11 badly-placed simplified
+    # points. Now that extraction properly evaluates the Bezier curve
+    # (_flatten_path_item), the simplified set is 22 well-distributed points
+    # and fits just as well as the dense set (R^2 0.99997 vs 0.99999,
+    # confirmed side by side) -- so there's no more reason to diverge from
+    # Tri-X's own convention here.
+    points = char_result["curves"]["density"]["points"]
 
     spec_chart = spectral_sensitivity_chart(pdf_path, spectral_page_index)
     spec_result = digitize_chart(spec_chart, pdf_path)
