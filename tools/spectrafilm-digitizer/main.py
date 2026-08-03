@@ -25,6 +25,7 @@ import argparse
 from products import (
     ilford_delta100,
     ilford_hp5plus,
+    ilford_multigrade_iv_rc,
     kodak_polymax_fine_art,
     kodak_trix400tx,
     kodak_trix400txp,
@@ -37,6 +38,7 @@ PRODUCTS = {
     **kodak_trix400txp.PRODUCTS,
     **kodak_trix400txt.PRODUCTS,
     **kodak_polymax_fine_art.PRODUCTS,
+    **ilford_multigrade_iv_rc.PRODUCTS,
     ilford_hp5plus.STOCK: ilford_hp5plus,
     ilford_delta100.STOCK: ilford_delta100,
 }

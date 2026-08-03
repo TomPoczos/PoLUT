@@ -42,9 +42,10 @@ project's own experience already shows a chart's vector-vs-raster/
 OCR-vs-real-text properties are per-panel, not a single blanket per-file
 property).
 
-target_print reuses kodak_polymax_fine_art_grade2, same cross-brand
-reasoning as ilford_hp5plus.py (no same-brand Ilford paper built for this
-schema yet).
+target_print is ilford_multigrade_iv_rc_grade2, a same-brand Ilford paper
+(products/ilford_multigrade_iv_rc.py) -- replaces the earlier cross-brand
+kodak_polymax_fine_art_grade2 placeholder, same update/reasoning as
+ilford_hp5plus.py.
 """
 
 from pathlib import Path
@@ -57,7 +58,7 @@ OUT_DIR = HERE / "outputs" / "film" / "bw" / "negative" / "ilford" / "ilford_del
 
 STOCK = "ilford_delta100"
 NAME = "Ilford Delta 100 Professional — ID-11 stock, 8.5min, 20C"
-TARGET_PRINT = "kodak_polymax_fine_art_grade2"
+TARGET_PRINT = "ilford_multigrade_iv_rc_grade2"
 DEV_TIME_MIN = 8.5
 
 DATASOURCE = (

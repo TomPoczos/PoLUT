@@ -1,0 +1,31 @@
+{
+  "exposure_anchor": {
+    "grade": "grade5",
+    "panel": "characteristic_curve_grades_4_5",
+    "x_speed_criterion_1.0": 2.7109624738821565,
+    "applied_shift": -2.7109624738821565
+  },
+  "note": "no development_time family -- see module docstring; log_sensitivity_density_over_min=1.0 (this project's existing default criterion, not a standards citation -- Multigrade's own sheet publishes 0.5/1.0/1.5, not the ISO 6:1993 0.60 criterion Polymax used)",
+  "curves": {
+    "grade5": {
+      "r_squared": 0.9999776551276212,
+      "max_residual": 0.011577887007628185,
+      "base_density": -0.0203,
+      "centers": [
+        0.3776973118578524,
+        -0.024920667864732165,
+        0.007022772129492977
+      ],
+      "amplitudes": [
+        0.043325769918478634,
+        0.11878831634765707,
+        1.9016744200001388
+      ],
+      "sigmas": [
+        0.06607622301945698,
+        0.02000000000000001,
+        0.12730656189483194
+      ]
+    }
+  }
+}

@@ -18,13 +18,12 @@ B&W sheet this tool has handled so far. There is no bracket to build a
 family from; see ilford_common.py's own module docstring for the full
 comparison.
 
-target_print reuses kodak_polymax_fine_art_grade2 (built for Kodak Tri-X)
-rather than a same-brand Ilford paper -- cross-brand film/paper pairing has
-real precedent already (Tri-X itself does this), and no Ilford paper has
-been built for this schema yet (a real one, Multigrade IV RC, exists in
-papers/125pixcom/paper/ilford/ and was already OCR-digitized for
-../curve_digitizer's own .cube pipeline, if a same-brand pairing is wanted
-later).
+target_print is ilford_multigrade_iv_rc_grade2, a same-brand Ilford paper
+(products/ilford_multigrade_iv_rc.py) -- replaces the earlier cross-brand
+kodak_polymax_fine_art_grade2 placeholder (cross-brand pairing had real
+precedent, e.g. Tri-X itself still uses it, but a same-brand pairing is
+strictly better once one exists). Grade 2 picked as the "normal" contrast
+default, same convention kodak_polymax_fine_art_grade2 used for Tri-X.
 """
 
 from pathlib import Path
@@ -37,7 +36,7 @@ OUT_DIR = HERE / "outputs" / "film" / "bw" / "negative" / "ilford" / "ilford_hp5
 
 STOCK = "ilford_hp5plus"
 NAME = "Ilford HP5 Plus 400 — ILFOTEC HC (1+31), 6.5min, 20C"
-TARGET_PRINT = "kodak_polymax_fine_art_grade2"
+TARGET_PRINT = "ilford_multigrade_iv_rc_grade2"
 DEV_TIME_MIN = 6.5
 
 DATASOURCE = (

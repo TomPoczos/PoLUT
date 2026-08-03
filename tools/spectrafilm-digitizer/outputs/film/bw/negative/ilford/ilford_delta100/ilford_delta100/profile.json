@@ -15,7 +15,7 @@
     "stage": "filming",
     "use": "still",
     "antihalation": "strong",
-    "target_print": "kodak_polymax_fine_art_grade2",
+    "target_print": "ilford_multigrade_iv_rc_grade2",
     "channel_model": "bw",
     "densitometer": "diffuse_visual",
     "log_sensitivity_density_over_min": 1.0,
