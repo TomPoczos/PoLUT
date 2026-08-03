@@ -88,6 +88,34 @@ fi
 echo "destinations:"
 for d in "${DEST_DIRS[@]}"; do echo "  $d"; done
 
+# This script only ADDS profile.json files to an EXISTING pack -- it cannot
+# create one. A real pack is pack.json + spectra_lut.f32 + profiles/ together;
+# spectra_lut.f32 is the shared spectral-basis table the module's math runs
+# on (see spektra_sim.c's sf_pack_lut_hash()/"spectra_lut.f32" reads) and
+# isn't film-specific, so no profile.json this tool produces can substitute
+# for it. It normally comes from a real spektrafilm release's own
+# spektrafilm_export_data.py export (github.com/andreavolpato/spektrafilm --
+# a separate project from darktable's spektrafilm *module*, confusingly
+# same-named), a one-time setup step this script does not perform. Check every
+# destination pack root, not just the top-level one -- a hash-keyed
+# packs/<hash>/ snapshot missing its own spectra_lut.f32 is just as broken as
+# the top-level dir missing it.
+missing_lut=()
+for d in "${DEST_DIRS[@]}"; do
+  pack_root="$(dirname "$d")"
+  [[ -f "$pack_root/spectra_lut.f32" ]] || missing_lut+=("$pack_root/spectra_lut.f32")
+done
+if [[ ${#missing_lut[@]} -gt 0 ]]; then
+  echo "error: no spektrafilm data pack installed -- missing:" >&2
+  for f in "${missing_lut[@]}"; do echo "  $f" >&2; done
+  echo "This script only adds profile.json files to an EXISTING pack; it can't create" >&2
+  echo "one. spectra_lut.f32 is the shared spectral table the whole pack (and every" >&2
+  echo "profile in it) depends on -- install a real spektrafilm data pack first" >&2
+  echo "(normally produced by spektrafilm_export_data.py from a spektrafilm release," >&2
+  echo "github.com/andreavolpato/spektrafilm), then re-run this script to add to it." >&2
+  exit 1
+fi
+
 # pack_format 2 is required for a rebuilt darktable to load anything from the
 # pack at all (see this project's CLAUDE.md and spektra_profile.py's own
 # schema-skew note) -- warn, don't silently proceed, if either pack.json is
