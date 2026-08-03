@@ -451,6 +451,64 @@ def extract_fill_band_curves(page, fill_rgb, tol, region_bbox, exclude_bboxes, n
 # position (connected-path identity) + a nearby inline text label, not color
 # ---------------------------------------------------------------------------
 
+def _flatten_path_item(item, samples_per_unit_length=0.25, min_samples=2, max_samples=64):
+    """Returns an item's real points ON the path, in drawing order. For a
+    cubic Bezier segment (PyMuPDF's own item shape: `("c", p0, p1, p2,
+    p3)` -- start, ctrl1, ctrl2, end), evaluates the true parametric curve
+    instead of returning the 4 raw tuple entries as-is: p1/p2 are CONTROL
+    points, generally NOT on the actual curve, and treating them as literal
+    traced samples silently corrupts the curve's shape wherever it's
+    genuinely drawn as a Bezier arc.
+
+    Confirmed as a real bug (2026-08-03, spectrafilm-digitizer's Ilford HP5
+    Plus product) on a chart drawn as just 3 long cubic Bezier segments,
+    unlike most Kodak charts (drawn as long, finely-segmented polylines --
+    200+ raw "l" points for a single curve). The QA overlay visibly cut a
+    corner through the toe -- traced back to a control point (the curve's
+    2nd Bezier segment's own ctrl1, sitting well off the true curve, close
+    to the segment's start density) getting appended as if it were a real
+    digitized point. Every other item type ("l", "re", ...) is returned
+    unchanged -- this only ever adds real curve samples, never removes or
+    moves existing ones, so it's a strict improvement with no regression
+    risk for polyline-drawn curves (a straight "l" segment's own true
+    shape already IS its 2 endpoints).
+
+    Sample COUNT scales with the segment's own size (its control-polygon
+    length |p0-p1|+|p1-p2|+|p2-p3|, a standard cheap upper bound on true
+    arc length) rather than a fixed count per segment -- a real, shipped
+    regression on the very first attempt (a flat n_bezier_samples=16)
+    broke Kodak Tri-X's own D-76 11min curve: a chart's small decorative
+    marks (confirmed: 4-segment closed loops ~1-1.5 page-units across,
+    almost certainly a bullet/tick glyph near a label) went from 4 raw
+    points/segment (16 total, safely below that chart's own
+    min_trace_points=50 filter) to 16 samples/segment (64 total) under a
+    flat sample count, crossing the threshold and getting picked up as a
+    spurious candidate curve, corrupting the real curve-to-label
+    assignment -- exactly the "small fragment mistaken for a real trace"
+    failure mode this project's own CLAUDE.md already documents from
+    before Bezier support existed at all. Scaling samples by the
+    segment's own real length keeps a tiny decoration at (or near)
+    min_samples while a long curve segment still gets properly densely
+    sampled -- the same size-implies-density relationship a hand-drawn
+    polyline already has for free."""
+    raw = [p for p in item[1:] if hasattr(p, "x")]
+    if item[0] != "c" or len(raw) != 4:
+        return raw
+    p0, p1, p2, p3 = raw
+    poly_len = (math.hypot(p1.x - p0.x, p1.y - p0.y)
+                + math.hypot(p2.x - p1.x, p2.y - p1.y)
+                + math.hypot(p3.x - p2.x, p3.y - p2.y))
+    n = max(min_samples, min(max_samples, round(poly_len * samples_per_unit_length) + 1))
+    out = []
+    for i in range(n):
+        t = i / (n - 1)
+        mt = 1 - t
+        x = mt**3 * p0.x + 3 * mt**2 * t * p1.x + 3 * mt * t**2 * p2.x + t**3 * p3.x
+        y = mt**3 * p0.y + 3 * mt**2 * t * p1.y + 3 * mt * t**2 * p2.y + t**3 * p3.y
+        out.append(fitz.Point(x, y))
+    return out
+
+
 def extract_traces_in_region(page, region_bbox, min_points=12, stroke_rgb=None, tol=0.15, continuity_tol=1.5,
                               cross_object_merge=False, merge_strategy="proximity", merge_tol_multiplier=6,
                               strict_chain_merge=False, split_on_x_reversal=False, reversal_run_length=5):
@@ -496,7 +554,7 @@ def extract_traces_in_region(page, region_bbox, min_points=12, stroke_rgb=None, 
         pending_sign = 0  # sign of x-travel accumulated in `cur` so far, once established
         run_sign, run_len = 0, 0  # tracks a candidate direction reversal in progress
         for item in d["items"]:
-            pts = [p for p in item[1:] if hasattr(p, "x")]
+            pts = _flatten_path_item(item)
             if not pts:
                 continue
             if prev_end is not None and (abs(pts[0].x - prev_end[0]) > continuity_tol
