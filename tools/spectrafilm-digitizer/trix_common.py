@@ -30,31 +30,25 @@ for TX; TXP/TXT have no push section at all, see kodak_trix400tx.py's own
 module docstring). Don't add a push/pull label to any stock whose real CI
 doesn't land on a Kodak-published anchor -- that would be exactly the
 guesswork-dressed-as-science this family's whole design avoids.
+
+The single-stock digitize/fit/write plumbing this module used to define
+directly (`speed_point_x`, `write_raw_and_qa`, `write_single_dev_time_stock`)
+moved to stock_io.py 2026-08 once Ilford (ilford_common.py) needed the exact
+same shape with none of the Kodak-specific CI/development-time-family bits
+below -- re-imported here so nothing in this file's own callers needs to
+change.
 """
 
-import json
 import os
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-import fitz
-
 import density_model as dm
-import spektra_profile as sp
-from digitizer_core import render_qa_overlay
+from stock_io import speed_point_x, write_raw_and_qa, write_single_dev_time_stock  # noqa: F401
 
 NORMAL_CI_TARGET = 0.56
 NORMAL_CI_TOLERANCE = 0.01
-
-
-def speed_point_x(points, base_density, criterion=1.0):
-    """Interpolate digitized (log_exposure, density) points to find the
-    log_exposure at density = base_density + criterion."""
-    xs = np.array([p[0] for p in points])
-    ys = np.array([p[1] for p in points])
-    order = np.argsort(ys)
-    return float(np.interp(base_density + criterion, ys[order], xs[order]))
 
 
 def _fit_one(dev_t, xs, ys, n_layers):
@@ -103,25 +97,6 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
     return {dev_t: (fits[dev_t], base_densities[dev_t]) for dev_t in dev_times}, xs_by_dev, ys_by_dev
 
 
-def write_raw_and_qa(pdf_path, chart, result, out_dir):
-    out_dir_raw = out_dir / "raw"
-    out_dir_qa = out_dir / "qa"
-    out_dir_raw.mkdir(parents=True, exist_ok=True)
-    out_dir_qa.mkdir(parents=True, exist_ok=True)
-
-    qa_path = out_dir_qa / f"{chart.chart_id}_qa_overlay.png"
-    doc = fitz.open(pdf_path)
-    render_qa_overlay([(chart, result["_qa_results"], result["_qa_calib"], doc[chart.page_index])], qa_path)
-    doc.close()
-
-    raw_out = dict(result)
-    raw_out["qa_overlay_png"] = qa_path.name
-    for k in ("_qa_results", "_qa_calib", "_qa_page_number"):
-        raw_out.pop(k, None)
-    (out_dir_raw / f"{chart.chart_id}.json").write_text(json.dumps(raw_out, indent=2))
-    return qa_path
-
-
 def real_ci_at(ci_curve_points, dev_time_min):
     """Real Kodak-measured CI at dev_time_min, linearly interpolated between
     the digitized points of that developer's own real Contrast-Index-vs-time
@@ -150,55 +125,3 @@ def fmt_time(dev_time_min):
 
 def fmt_time_slug(dev_time_min):
     return fmt_time(dev_time_min).replace(".", "p")
-
-
-def write_single_dev_time_stock(
-    *, out_root, stock, name, target_print, densitometer,
-    log_sensitivity_density_over_min, reference_illuminant, viewing_illuminant,
-    datasource, wavelengths, log_sensitivity, log_exposure,
-    base_density_scalar, fit, dev_time_min,
-):
-    """Writes one fully self-contained single-development-time stock
-    (n_dev=1 from the start, not collapsed from a wider family) to
-    out_root/<stock>/profile.json -- the single darktable-loadable file
-    (see spektra_profile.py's module docstring for why one file is now
-    enough). `fit` is a density_model.NormCdfsFit already fit on this one
-    development time's own net-density points (log_exposure grid is
-    grids.LOG_EXPOSURE, the shared canonical grid)."""
-    out_dir = out_root / stock
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    total = dm.evaluate_total(fit, log_exposure)                  # (256,)
-    layers = dm.evaluate_layers(fit, log_exposure)                # (256,n_layers)
-    density_curves = total[:, None]                               # (256,1)
-    density_curves_layers = layers[:, :, None]                    # (256,n_layers,1)
-    base_density = np.full((81, 1), base_density_scalar)
-    density_curves_model = {
-        "model_type": "norm_cdfs",
-        "centers": fit.centers[None, :],
-        "amplitudes": fit.amplitudes[None, :],
-        "sigmas": fit.sigmas[None, :],
-    }
-
-    info = sp.build_info(
-        stock=stock, name=name, type_="negative", support="film", stage="filming",
-        use="still", antihalation="strong", target_print=target_print,
-        channel_model="bw", densitometer=densitometer,
-        log_sensitivity_density_over_min=log_sensitivity_density_over_min,
-        reference_illuminant=reference_illuminant, viewing_illuminant=viewing_illuminant,
-    )
-    source_profile = sp.build_source_profile(
-        info=info, datasource=datasource,
-        wavelengths=wavelengths, log_sensitivity=log_sensitivity,
-        channel_density_value=1.0, log_exposure=log_exposure,
-        base_density=base_density, density_curves=density_curves,
-        density_curves_layers=density_curves_layers,
-        density_curves_model=density_curves_model, development_time=[dev_time_min],
-    )
-    sp.validate_source_profile(sp._json_safe(source_profile), n_dev_expected=1)
-
-    pack_profile = sp.collapse_to_darktable_pack(source_profile)
-    sp.validate_darktable_pack(pack_profile)
-    sp.write_profile(out_dir / "profile.json", pack_profile)
-
-    return source_profile, pack_profile, out_dir

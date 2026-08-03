@@ -22,7 +22,7 @@ same way.
 
 import argparse
 
-from products import kodak_polymax_fine_art, kodak_trix400tx, kodak_trix400txp, kodak_trix400txt
+from products import ilford_hp5plus, kodak_polymax_fine_art, kodak_trix400tx, kodak_trix400txp, kodak_trix400txt
 import validate_external
 
 PRODUCTS = {
@@ -30,6 +30,7 @@ PRODUCTS = {
     **kodak_trix400txp.PRODUCTS,
     **kodak_trix400txt.PRODUCTS,
     **kodak_polymax_fine_art.PRODUCTS,
+    ilford_hp5plus.STOCK: ilford_hp5plus,
 }
 
 

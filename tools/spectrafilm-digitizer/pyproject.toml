@@ -7,5 +7,6 @@ dependencies = [
     "matplotlib>=3.11.1",
     "numpy>=2.5.1",
     "pymupdf>=1.28.0",
+    "pytesseract>=0.3.13",
     "scipy>=1.18.0",
 ]
