@@ -494,16 +494,14 @@ def build_grade(grade):
         density_curves_model=density_curves_model, development_time=DEVELOPMENT_TIME,
     )
     sp.validate_source_profile(sp._json_safe(source_profile), n_dev_expected=1)
-    sp.write_profile(OUT_DIR / "profile.spektrafilm.json", source_profile)
 
     pack_profile = sp.collapse_to_darktable_pack(source_profile)
     sp.validate_darktable_pack(pack_profile)
-    sp.write_profile(OUT_DIR / "profile.darktable.json", pack_profile)
+    sp.write_profile(OUT_DIR / "profile.json", pack_profile)
 
     (OUT_DIR / "qa" / "fit_report.json").write_text(json.dumps(sp._json_safe(fit_report), indent=2))
 
-    print(f"  Wrote {OUT_DIR / 'profile.spektrafilm.json'}")
-    print(f"  Wrote {OUT_DIR / 'profile.darktable.json'}")
+    print(f"  Wrote {OUT_DIR / 'profile.json'}")
     return source_profile, pack_profile
 
 

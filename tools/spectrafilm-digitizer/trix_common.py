@@ -6,12 +6,18 @@ single-development-time darktable stock -- no development-time slider, no
 collapse_to_darktable_pack() flattening of a real family down to one
 representative value (contrast that against kodak_trix400.py's original
 single-stock shape, which fit all of D-76's 7/9/11 min as one family and
-shipped only the 9 min curve to darktable). Each stock's own
-profile.spektrafilm.json and profile.darktable.json both carry
+shipped only the 9 min curve to darktable). Each stock carries
 development_time=[t] (n_dev=1) from the start, so there is nothing for
-collapse_to_darktable_pack() to flatten -- it still runs (every stock needs
-the widen-to-3-columns step it also performs) but is a no-op on the family
-axis here.
+collapse_to_darktable_pack() to flatten on the family axis -- it still runs,
+since every stock still needs its log_sensitivity/channel_density/
+density_curves widened to 3 columns (still required unconditionally by
+darktable's C reader, pack_format 2 or not -- see spektra_profile.py's
+module docstring), it just no longer also widens density_curves_model
+(unnecessary since darktable's pack-format-2 fix, same reference).
+Only one file is written to disk per stock now (`profile.json`, the
+collapsed+widened darktable-loadable shape) -- the pre-collapse
+`build_source_profile()` shape is kept in memory only, as input to that
+widening step and to the external spektrafilm-package validation round-trip.
 
 Every stock also carries its own real, Kodak-published Contrast Index
 (digitized from that same datasheet's own Contrast-Index-vs-development-time
@@ -154,9 +160,11 @@ def write_single_dev_time_stock(
 ):
     """Writes one fully self-contained single-development-time stock
     (n_dev=1 from the start, not collapsed from a wider family) to
-    out_root/<stock>/. `fit` is a density_model.NormCdfsFit already fit on
-    this one development time's own net-density points (log_exposure grid
-    is grids.LOG_EXPOSURE, the shared canonical grid)."""
+    out_root/<stock>/profile.json -- the single darktable-loadable file
+    (see spektra_profile.py's module docstring for why one file is now
+    enough). `fit` is a density_model.NormCdfsFit already fit on this one
+    development time's own net-density points (log_exposure grid is
+    grids.LOG_EXPOSURE, the shared canonical grid)."""
     out_dir = out_root / stock
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -188,10 +196,9 @@ def write_single_dev_time_stock(
         density_curves_model=density_curves_model, development_time=[dev_time_min],
     )
     sp.validate_source_profile(sp._json_safe(source_profile), n_dev_expected=1)
-    sp.write_profile(out_dir / "profile.spektrafilm.json", source_profile)
 
     pack_profile = sp.collapse_to_darktable_pack(source_profile)
     sp.validate_darktable_pack(pack_profile)
-    sp.write_profile(out_dir / "profile.darktable.json", pack_profile)
+    sp.write_profile(out_dir / "profile.json", pack_profile)
 
     return source_profile, pack_profile, out_dir

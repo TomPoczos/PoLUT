@@ -6,27 +6,69 @@ the documented schema directly -- no parallel dataclass hierarchy duplicating
 a second thing to keep in sync with upstream as it evolves, for a shape with
 no real behavior to reuse).
 
-Two related, same-schema outputs, for two different real consumers:
+Two related, same-schema builders, feeding ONE file on disk per product
+(`profile.json` -- see `write_single_dev_time_stock()`/`build_grade()`'s own
+call sites). Before darktable's `pack_format` 2 (`~/code/darktable` commit
+`eedbad83dc`, "support pack v2 files, fix Tri-X column layout to follow
+upstream spektrafilM"), this used to be two files written to disk
+(`profile.spektrafilm.json` + `profile.darktable.json`), because darktable's
+C reader (`sf_profile_load` in `spektra_sim.c`) used to *guess* whether a BW
+stock's `density_curves_model` outer axis was the development-time family or
+a (fake, widened) channel axis from its row count alone -- wrong on at least
+one real stock (Kodak Double-X, off by 1.34 density) and the exact bug this
+project's own Tri-X profiles hit (named directly in the darktable commit
+message). Pack format 2 fixed that specific ambiguity: `dev_major` is now
+resolved from the profile's own declared `channel_model`, not the array
+shape, so `density_curves_model` no longer needs to be pre-widened to 3
+identical rows -- confirmed both by reading the current C source
+(`spektra_sim.c`'s `sf_profile_load`, the `centers`/`amplitudes`/`sigmas`
+block) and against real upstream profiles already in the installed devconfig
+pack (`kodak_doublex.json`, a genuine 5-development-time family, ships
+`density_curves_model.centers` shape `(5, 3)` = `(n_dev, n_layers)`,
+un-widened, under this same `pack_format: 2` pack).
+
+This does **not** mean the whole two-shape distinction disappeared, though --
+only the specific ambiguity above did. `log_sensitivity`/`channel_density`
+are still read unconditionally as `(SF_NWL, 3)` matrices by the C reader
+(`json_read_dmatrix(data, "log_sensitivity", ..., SF_NWL, 3)`, untouched by
+the pack-v2 commit and confirmed 3-wide even in real upstream BW profiles
+like `kodak_doublex.json`/`kodak_2302.json`) -- there is no `channel_model`
+escape hatch for these two fields, so a BW stock's single real channel still
+has to be replicated into 3 identical columns for darktable to load the
+file at all. And the raw digitized `density_curves`/`base_density` (not the
+fitted `_model`) only get to skip pre-widening/pre-collapsing when a real,
+multi-member `development_time` family is shipped (`n_dev > 1`, which
+triggers the C reader's own runtime slice-and-widen path) -- every stock
+this tool currently produces ships exactly one development time per file
+(see `trix_common.py`'s own module docstring for why), so `n_dev == 1`
+always, and these two fields still need the same widen/flatten treatment
+they always did. `collapse_to_darktable_pack()` below reflects exactly this:
+it drops the now-unnecessary `density_curves_model` widening, keeps
+everything else.
 
 - `build_source_profile()` -- spektrafilm's own "source profile" shape (what
   lives in `spektrafilm/src/spektrafilm/data/profiles/*.json` and what the
   Python package/GUI itself loads via `load_profile()`). For a B&W stock this
   is genuinely single-channel (log_sensitivity/channel_density carry ONE
   column, not three) and can carry a real multi-development-time family.
-- `collapse_to_darktable_pack()` -- the shape actually written into
-  `devconfig/spektrafilm/profiles/*.json` and read by darktable's C loader
-  (`sf_profile_load` in `spektra_sim.c`). This is a **direct port** of
-  `spektrafilm_export_data.py`'s own BW collapse/widen block (read from
-  `~/code/spektrafilm-export-data/spektrafilm_export_data.py`, function
-  `main()`, the "stock profiles" section) -- not a hand-derived
-  approximation. That script's own comment explains why the collapse step
-  exists: shipping a real, uncollapsed development-time family straight
-  through to darktable previously produced a confirmed bug ("kodak_2302...
-  renders blank white"), because the C loader would sum every development
-  time's fitted curve together as if they were legitimate sub-layers of one
-  curve. Porting the exact algorithm (rather than re-deriving the collapsed
-  shape by hand) is what guarantees our darktable-facing file avoids that
-  same class of bug.
+  Never written to disk as its own file anymore -- kept in memory only, as
+  the input to `collapse_to_darktable_pack()` and to the external validation
+  round-trip (`validate_external.py`), which still needs this exact
+  un-widened shape since the newer installed `spektrafilm` package's own
+  validator rejects a widened BW profile regardless of `pack_format`
+  (see `validate_external.py`'s own docstring -- that skew is unrelated to
+  today's darktable fix and still stands).
+- `collapse_to_darktable_pack()` -- the shape actually written to disk as
+  `profile.json` and read by darktable's C loader (`sf_profile_load` in
+  `spektra_sim.c`). Still collapses a real development-time family to its
+  middle representative (`idx = (len(times)-1)//2`, matching upstream's
+  `select_development_time(None)`) and still widens `log_sensitivity`/
+  `channel_density`/`density_curves` to 3 identical columns and flattens
+  `base_density` to one value per wavelength -- all still genuinely required
+  by the C reader, not a stale workaround. What it no longer does is widen
+  `density_curves_model`'s rows: that field is written straight through in
+  its real `(n_dev, n_layers)` shape now that `dev_major` no longer depends
+  on guessing from it.
 """
 
 import copy
@@ -165,12 +207,13 @@ def _widen3_rows(rows):
 
 
 def collapse_to_darktable_pack(source_profile: dict) -> dict:
-    """Direct port of spektrafilm_export_data.py's BW stock-profile
-    collapse+widen block (see module docstring) -- operates on the same
-    JSON-shaped dict `build_source_profile()` produces (already run through
-    `_json_safe`-equivalent plain lists), not on numpy arrays, to stay a
-    faithful line-for-line port rather than a reimplementation in a
-    different data representation."""
+    """Collapses a development-time family (if any) to its middle
+    representative and widens the fields darktable's C reader still requires
+    3-wide/flat regardless of `pack_format` -- everything here except the
+    (now-dropped) `density_curves_model` widening is a direct port of
+    `spektrafilm_export_data.py`'s own BW collapse/widen block (see module
+    docstring for the pack_format-2 history and which pieces of that port
+    are still load-bearing vs. now unnecessary)."""
     prof = copy.deepcopy(_json_safe(source_profile))
     assert prof["info"]["channel_model"] == "bw"
     d = prof["data"]
@@ -198,13 +241,14 @@ def collapse_to_darktable_pack(source_profile: dict) -> dict:
 
     d["development_time"] = [times[idx]]
 
-    model = d.get("density_curves_model")
-    for key in ("centers", "amplitudes", "sigmas", "alphas"):
-        arr = model.get(key)
-        if arr and len(arr) == len(times):
-            model[key] = [arr[idx]]
+    # density_curves_model is NOT collapsed or widened anymore -- darktable's
+    # pack_format 2 resolves its outer axis from channel_model (dev_major=bw)
+    # rather than guessing from row count, so the real, un-widened
+    # (n_dev, n_layers) shape `build_source_profile()` already produced loads
+    # correctly as-is (see module docstring). Left fully intact here.
 
     # widen: 1-column -> 3 identical columns for log_sensitivity/density_curves
+    # (still required unconditionally by the C reader -- see module docstring)
     for key in ("log_sensitivity", "density_curves"):
         if key in d and d[key] and len(d[key][0]) == 1:
             d[key] = _widen3_rows(d[key])
@@ -215,12 +259,6 @@ def collapse_to_darktable_pack(source_profile: dict) -> dict:
         d["channel_density"] = [
             [None if row[0] is None else row[0] / 3.0] * 3 for row in cd
         ]
-
-    # density_curves_model: the one collapsed row repeated 3x (channel-major)
-    for key in ("centers", "amplitudes", "sigmas", "alphas"):
-        arr = model.get(key)
-        if arr and len(arr) == 1:
-            model[key] = arr * 3
 
     return prof
 
@@ -245,8 +283,13 @@ def validate_darktable_pack(profile: dict):
     assert len(d["density_curves"]) == 256 and all(len(r) == 3 for r in d["density_curves"])
     dev_times = d.get("development_time") or []
     assert len(dev_times) == 1, "darktable pack profile must be collapsed to a single development_time"
+    # density_curves_model is intentionally left un-widened (pack_format 2,
+    # dev_major resolved from channel_model -- see module docstring): its
+    # outer axis is the (collapsed, length-1) development_time family, not a
+    # channel axis, so `centers` has exactly one real row, not 3.
     model = d["density_curves_model"]
-    assert len(model["centers"]) == 3, "channel-major widening expected (3 identical rows)"
+    assert len(model["centers"]) == len(dev_times), \
+        "density_curves_model outer axis must match the (collapsed) development_time family"
     n_layers = len(model["centers"][0])
     assert len(model["amplitudes"][0]) == n_layers and len(model["sigmas"][0]) == n_layers
 

@@ -39,20 +39,19 @@ def main():
                      help="build only these stock slugs (default: all)")
     ap.add_argument("--skip-external-validation", action="store_true",
                      help="skip shelling out to ~/venv-spektrafilm-dev for the "
-                          "profile.spektrafilm.json authoritative check")
+                          "pre-collapse source-profile authoritative check")
     args = ap.parse_args()
 
     stocks = args.only or sorted(PRODUCTS)
     for stock in stocks:
         module = PRODUCTS[stock]
         print(f"=== {stock} ===")
-        module.build()
+        source_profile, _pack_profile = module.build()
 
         if not args.skip_external_validation:
-            profile_path = module.OUT_DIR / "profile.spektrafilm.json"
-            report = validate_external.validate_spektrafilm_source_externally(profile_path)
+            report = validate_external.validate_spektrafilm_source_profile(source_profile)
             status = "OK" if report.get("ok") else "FAILED"
-            print(f"  external validation ({profile_path.name}): {status} -- {report}")
+            print(f"  external validation (source profile, in-memory): {status} -- {report}")
 
 
 if __name__ == "__main__":
