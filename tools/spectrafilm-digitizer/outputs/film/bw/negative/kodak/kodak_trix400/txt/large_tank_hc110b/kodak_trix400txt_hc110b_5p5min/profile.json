@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Kodak F-9 'KODAK TRI-X Pan and KODAK TRI-X Pan Professional Films' datasheet, June 1999 (papers/125pixcom/film/kodak/f9-Tri-X_Pan-199906.pdf), page 11 'Characteristic Curves' (HC-110 Developer Dilution B, Large tank, 70F/21C, 5.5/7/8.5/10min) and page 9 'Spectral-Sensitivity Curve' ('1.0 + D-min' trace, shared with kodak_trix400tx.py -- no separate TXT spectral-sensitivity chart published; same real limitation as kodak_trix400txp.py, flagged there too). Digitized independently via this project's own tooling."

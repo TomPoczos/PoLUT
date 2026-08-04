@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Kodak F-9 'KODAK TRI-X Pan and KODAK TRI-X Pan Professional Films' datasheet, June 1999 (papers/125pixcom/film/kodak/f9-Tri-X_Pan-199906.pdf), page 10 'Characteristic Curves' (HC-110 Developer Dilution B, Large tank, 68F/20C, 3.5/6.25/9min) and page 9 'Spectral-Sensitivity Curve' ('1.0 + D-min' trace, shared with kodak_trix400tx.py -- TXP's own datasheet doesn't publish a separate spectral-sensitivity chart for TXP, only for TX; treated as the same panchromatic sensitization curve, a real limitation of this source, not assumed silently -- flagged here for anyone extending this product later). Digitized independently via this project's own tooling."

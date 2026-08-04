@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Ilford 'MULTIGRADE IV RC' Fact Sheet, December 2001 (papers/125pixcom/paper/ilford/Multigrade IV RC.pdf), page 2 'Characteristic curves', characteristic_curve_grades_4_5 panel (OCR-calibrated axes -- vector-drawn tick shapes, no real tick text; curve identity via digitizer_core.assign_traces_by_x_rank -- see module docstring) and page 1 'Spectral sensitivity' (Equal energy, real vector text throughout, shared across all 7 grades). Digitized independently via this project's own tooling (fresh in this session, not reused from tools/curve_digitizer's earlier pass at the same PDF)."

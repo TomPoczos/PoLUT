@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Kodak G-24 'KODAK PROFESSIONAL Polymax Fine-Art Paper' datasheet, June 2005 (papers/125pixcom/paper/kodak/g24.pdf), page 5 'CURVES', characteristic_curve_filterset2 panel. Digitized independently via this project's own tooling (fresh in this session, not reused from any prior corpus pass). Spectral-Sensitivity Curve ('D=0.6 above D-min' trace) shared across all 7 grades (see module docstring -- the paper's spectral response doesn't vary by filter grade)."

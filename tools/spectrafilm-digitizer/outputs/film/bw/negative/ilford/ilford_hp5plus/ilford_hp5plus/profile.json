@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Ilford 'HP5 Plus' Fact Sheet, July 2004 (papers/125pixcom/film/ilford/HP5+-200407.pdf), page 5 'Characteristic Curves' (ILFOTEC HC 1+31, 6.5min, 20C/68F, EI 400/27) and page 1 'Spectral Sensitivity' (wedge spectrogram to tungsten light, 2850K). Digitized independently via this project's own tooling."

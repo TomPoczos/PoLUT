@@ -302,7 +302,22 @@ def spectral_sensitivity_chart(pdf_path, page_index, x_tick_regex=r"^\d{3}$", y_
         fit_axis(words_all, y_tick_regex, "y", bbox=tick_box)
     except RuntimeError:
         x_tick_bbox = (box[0], box[3] - 20, box[2], box[3] + 15)
-        y_tick_bbox = (box[2] - 45, box[1], box[2], box[3])
+        # Right edge pulled in a few points from box[2] (box[2] - 4, not
+        # box[2] -- widened left edge to box[2] - 49 to compensate) --
+        # confirmed needed on Delta 400 (2026-08-04): with the right edge
+        # sitting exactly at box[2], tesseract's --psm 11 layout analysis
+        # non-monotonically mangled the "0.5" tick (read as bare "0", or
+        # "0." with the "5" dropped, depending on OCR zoom) even though the
+        # glyph itself renders cleanly and clipping doesn't visibly change
+        # -- empirically a boundary-pixel/anti-aliasing sensitivity in
+        # tesseract's own segmentation, not a real ambiguity in the source
+        # (many other right-edge offsets tried, all >=3pt in from box[2]
+        # read both ticks cleanly; box[2] itself and one narrower attempt
+        # anchored off the rotated "Sensitivity" label's own x0 both
+        # failed). HP5 Plus's OCR happened to read both ticks correctly at
+        # the original box[2]-45..box[2] crop regardless, so this wasn't
+        # caught there -- re-verified unaffected by this change.
+        y_tick_bbox = (box[2] - 49, box[1], box[2] - 4, box[3])
         # whitelist=None: the default digit-only whitelist merges this
         # row's tightly-spaced 3-digit wavelength ticks into one token on
         # HP5 Plus -- see ocr_helpers.py's own docstring.

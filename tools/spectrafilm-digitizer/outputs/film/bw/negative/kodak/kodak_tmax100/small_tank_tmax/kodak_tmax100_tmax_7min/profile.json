@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Kodak F-4016 'KODAK PROFESSIONAL T-MAX 100 Film' datasheet, Revised 6-18 (papers/125pixcom/film/kodak/f4016_tmax_100-2018.pdf), page 8 (index 7) 'Characteristic Curves' (D-76 Small Tank 20C/68F 6/7.5/10min; KODAK PROFESSIONAL T-MAX RS Developer and Replenisher Large Tank 20C/68F 8/10.5/13/15min; KODAK PROFESSIONAL T-MAX Developer Small Tank 20C/68F 6/7/10/12min) and 'Spectral Sensitivity Curves' ('1.0 greater than D-min' trace, D-76 68F/20C). Digitized independently via this project's own tooling."

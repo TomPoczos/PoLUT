@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Ilford '100 Delta Professional' Fact Sheet, September 2002 (papers/125pixcom/film/ilford/Delta_100-200209.pdf), page 4 'Characteristic Curve' (ID-11 stock, 8.5min, 20C/68F, EI 100/21) -- an embedded raster image, digitized via raster_tracer.py's column-scan pixel tracer, not vector-path extraction -- and page 1 'Spectral Sensitivity' (wedge spectrogram to tungsten light, 2850K, real vector paths). Digitized independently via this project's own tooling."

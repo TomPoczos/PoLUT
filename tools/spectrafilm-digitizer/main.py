@@ -24,9 +24,12 @@ import argparse
 
 from products import (
     ilford_delta100,
+    ilford_delta400,
+    ilford_fp4plus,
     ilford_hp5plus,
     ilford_multigrade_iv_rc,
     kodak_polymax_fine_art,
+    kodak_techpan,
     kodak_tmax100,
     kodak_trix400tx,
     kodak_trix400txp,
@@ -39,10 +42,13 @@ PRODUCTS = {
     **kodak_trix400txp.PRODUCTS,
     **kodak_trix400txt.PRODUCTS,
     **kodak_tmax100.PRODUCTS,
+    **kodak_techpan.PRODUCTS,
     **kodak_polymax_fine_art.PRODUCTS,
     **ilford_multigrade_iv_rc.PRODUCTS,
     ilford_hp5plus.STOCK: ilford_hp5plus,
     ilford_delta100.STOCK: ilford_delta100,
+    ilford_fp4plus.STOCK: ilford_fp4plus,
+    ilford_delta400.STOCK: ilford_delta400,
 }
 # Re-registered here (see products/ilford_delta100.py's own docstring):
 # earlier in this session Delta 100 looked genuinely blocked -- its

@@ -32,6 +32,31 @@ def speed_point_x(points, base_density, criterion=1.0):
     return float(np.interp(base_density + criterion, ys[order], xs[order]))
 
 
+def ansi_speed_ei(points, base_density, criterion=0.1, k=0.8):
+    """Simplified ANSI/ISO black-and-white negative film speed: EI = k / Hm,
+    Hm = the real exposure in lux-seconds (10**log_exposure, so `points`
+    must be in the chart's own real un-shifted page-axis units, not a
+    canonical-grid-shifted curve) at density = base_density + criterion
+    (0.1 and k=0.8 are ISO 6:1993's own constants for this style of speed
+    point). This is the plain single-point speed-point method, NOT the full
+    ANSI PH2.5/ISO 6:1993 two-point fractional-gradient method (which also
+    requires a second point 1.3 log-H further along the curve to land
+    within a specified delta-density range, a shape-sensitive correction
+    this project doesn't attempt) -- expect good agreement on steep/
+    higher-contrast curves and looser agreement on very low-contrast curves
+    (a shallow toe makes the single-point method more sensitive to exactly
+    where density departs from base), not an exact match to a
+    manufacturer's own published EI on every curve. Useful as an
+    independent real-number cross-check when a datasheet publishes its own
+    EI alongside a curve (see products/kodak_techpan.py, whose datasheet
+    publishes real EI per development time -- something Tri-X's own
+    datasheet never does per bracket -- for how strong agreement on a
+    to-be-relied-on curve raises confidence in that curve's own axis
+    calibration), not as a from-scratch speed measurement."""
+    log_exposure_at_h = speed_point_x(points, base_density, criterion=criterion)
+    return k / (10.0 ** log_exposure_at_h)
+
+
 def write_raw_and_qa(pdf_path, chart, result, out_dir):
     out_dir_raw = out_dir / "raw"
     out_dir_qa = out_dir / "qa"

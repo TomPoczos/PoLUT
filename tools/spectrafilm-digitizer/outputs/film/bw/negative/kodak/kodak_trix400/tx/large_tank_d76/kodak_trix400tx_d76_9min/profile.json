@@ -2,7 +2,7 @@
   "metadata": {
     "version": "0.1.0",
     "copyright": "Copyright (c) 2026 the PoLUT project.",
-    "created": "2026-08-03",
+    "created": "2026-08-04",
     "license": "Digitized independently from a public Eastman Kodak Company datasheet (see datasource); not derived from spektrafilm's own CC-BY-SA-licensed profile dataset.",
     "citation": "",
     "datasource": "Kodak F-9 'KODAK TRI-X Pan and KODAK TRI-X Pan Professional Films' datasheet, June 1999 (papers/125pixcom/film/kodak/f9-Tri-X_Pan-199906.pdf), page 8 'Characteristic Curves' (D-76 Large tank 68F/20C 7/9/11min; KODAK T-MAX Developer Small tank 75F/24C 5/7/9/11min) and page 9 'Spectral-Sensitivity Curve' ('1.0 + D-min' trace). Digitized independently via this project's own tooling."

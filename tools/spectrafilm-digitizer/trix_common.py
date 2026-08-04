@@ -45,7 +45,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 import density_model as dm
-from stock_io import speed_point_x, write_raw_and_qa, write_single_dev_time_stock  # noqa: F401
+from stock_io import ansi_speed_ei, speed_point_x, write_raw_and_qa, write_single_dev_time_stock  # noqa: F401
 
 NORMAL_CI_TARGET = 0.56
 NORMAL_CI_TOLERANCE = 0.01
@@ -109,10 +109,35 @@ def real_ci_at(ci_curve_points, dev_time_min):
     return float(np.interp(dev_time_min, pts[order, 0], pts[order, 1]))
 
 
-def ci_label(real_ci):
-    if abs(real_ci - NORMAL_CI_TARGET) <= NORMAL_CI_TOLERANCE:
+def ci_label(real_ci, target=NORMAL_CI_TARGET, tolerance=NORMAL_CI_TOLERANCE):
+    """`target`/`tolerance` default to Tri-X's own published 0.56 starting-
+    point recommendation (every existing caller relies on this default and
+    passes neither). Not every film has an unambiguous single published
+    "normal" CI to check against -- Kodak Technical Pan's own datasheet
+    only ties its EI 25 "pictorial" recommendation to two different
+    development times at once (9 and 11 min both read EI 25 on that film's
+    own real published table), so no single time can honestly claim the
+    tag. Pass `target=None` in that situation to skip the check entirely
+    rather than reusing a different film's own target by coincidence."""
+    if target is not None and abs(real_ci - target) <= tolerance:
         return f"CI {real_ci:.2f} (normal)"
     return f"CI {real_ci:.2f}"
+
+
+def ci_from_table(ci_table, dev_time_min):
+    """Real Kodak-published CI at dev_time_min, read directly from a
+    datasheet's own printed Contrast-Index table ({dev_time_min: ci}, real
+    numbers transcribed as-is) -- the table equivalent of real_ci_at, for a
+    datasheet that publishes exact CI values as text alongside its
+    Characteristic-Curve chart instead of (or in addition to) a separate
+    CI-vs-development-time inset chart (Kodak Technical Pan's own
+    Technidol panel does this, see products/kodak_techpan.py). No
+    interpolation, unlike real_ci_at -- a table only has the discrete
+    times it was actually measured/published at, so a dev_time_min not
+    present is a real error, not something to estimate."""
+    if dev_time_min not in ci_table:
+        raise KeyError(f"{dev_time_min} not in published CI table {sorted(ci_table)}")
+    return float(ci_table[dev_time_min])
 
 
 def fmt_time(dev_time_min):
