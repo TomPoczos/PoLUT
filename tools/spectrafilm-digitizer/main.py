@@ -18,9 +18,31 @@ no development-time slider -- see trix_common.py's own module docstring for why)
 new single stock: write products/<new_stock>.py, add it to PRODUCTS below. Adding a new
 family: follow kodak_polymax_fine_art.py's own shape and merge its PRODUCTS dict in the
 same way.
+
+Build parallelism: one OS process per FAMILY MODULE (not per stock slug) -- every multi-
+stock module's PRODUCTS entries share one digitize+fit pass, cached at module-global scope
+(e.g. kodak_trix400tx.py's `_BUILT_CACHE`, populated by whichever stock's .build() runs
+first); running two stocks from the SAME family in two different processes would just redo
+that shared pass twice, not actually parallelize anything real. The real independent unit
+of work is the family module -- 11 of them for the full default build, a close-to-exact
+match for a typical dev box's core count -- so that's what gets one process each here,
+capped at os.cpu_count() so this can never oversubscribe. Confirmed by direct observation
+that the previous fully-sequential main() (one product at a time, in one process) pegged a
+single core throughout, with other cores spiking only briefly during a family's OWN inner
+ProcessPoolExecutor call (trix_common.fit_dev_times_parallel) -- i.e. the family-module
+loop itself, not any single product's own fitting step, was the real bottleneck.
+
+trix_common.INNER_WORKERS is sized here (before the outer pool is created, so it's
+inherited by every forked worker -- see that global's own comment) to whatever's left of
+os.cpu_count() once the outer pool's own per-job share is accounted for, so the two
+parallelism layers (this module's outer per-family pool, and fit_dev_times_parallel's own
+inner per-development-time pool inside 5 of these families) can never together run more
+OS processes than there are cores, not just each individually staying under the cap.
 """
 
 import argparse
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 from products import (
     ilford_delta100,
@@ -35,6 +57,7 @@ from products import (
     kodak_trix400txp,
     kodak_trix400txt,
 )
+import trix_common
 import validate_external
 
 PRODUCTS = {
@@ -63,6 +86,46 @@ PRODUCTS = {
 # too -- check that first before assuming a new blocker needs its own
 # bespoke pipeline.
 
+# Multi-stock family modules: one shared digitize+fit pass per module,
+# fanned out to every stock in its own PRODUCTS dict (see module docstring).
+FAMILY_MODULES = [
+    kodak_trix400tx, kodak_trix400txp, kodak_trix400txt,
+    kodak_tmax100, kodak_techpan,
+    kodak_polymax_fine_art, ilford_multigrade_iv_rc,
+]
+# Single-stock modules: build()/STOCK/OUT_DIR live at module level directly.
+SINGLE_STOCK_MODULES = [ilford_hp5plus, ilford_delta100, ilford_fp4plus, ilford_delta400]
+
+# Modules aren't picklable (vanilla pickle has no module-by-reference
+# reduction, unlike classes/functions), so a submitted job can't just close
+# over one -- pass its name instead and look it up here. Fork-based
+# ProcessPoolExecutor (the Linux default this project relies on already,
+# see trix_common.INNER_WORKERS) hands each worker a copy-on-write snapshot
+# of this dict as it stands at fork time, which is after main() has already
+# imported everything above, so every worker's lookup always hits.
+_FAMILY_BY_NAME = {m.__name__: m for m in FAMILY_MODULES}
+_SINGLE_BY_NAME = {m.__name__: m for m in SINGLE_STOCK_MODULES}
+
+
+def _build_family(name):
+    """Runs in its own worker process: builds every stock this family module
+    owns in one shared digitize+fit pass (its own PRODUCTS dict already
+    caches that pass at module-global scope -- see main.py's own docstring),
+    returns {slug: (source_profile, pack_profile)} for all of them at once."""
+    module = _FAMILY_BY_NAME[name]
+    return {slug: entry.build() for slug, entry in module.PRODUCTS.items()}
+
+
+def _build_single(name):
+    module = _SINGLE_BY_NAME[name]
+    return {module.STOCK: module.build()}
+
+
+def _validate_one(stock, source_profile, skip):
+    if skip:
+        return stock, None
+    return stock, validate_external.validate_spektrafilm_source_profile(source_profile)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -73,16 +136,49 @@ def main():
                           "pre-collapse source-profile authoritative check")
     args = ap.parse_args()
 
-    stocks = args.only or sorted(PRODUCTS)
-    for stock in stocks:
-        module = PRODUCTS[stock]
-        print(f"=== {stock} ===")
-        source_profile, _pack_profile = module.build()
+    requested = set(args.only) if args.only else set(PRODUCTS)
 
-        if not args.skip_external_validation:
-            report = validate_external.validate_spektrafilm_source_profile(source_profile)
+    jobs = []  # [(label, fn, module_name), ...]
+    for module in FAMILY_MODULES:
+        if requested & set(module.PRODUCTS):
+            jobs.append((module.__name__, _build_family, module.__name__))
+    for module in SINGLE_STOCK_MODULES:
+        if module.STOCK in requested:
+            jobs.append((module.__name__, _build_single, module.__name__))
+
+    cpu_count = os.cpu_count() or 1
+    outer_workers = min(len(jobs), cpu_count)
+    # What's left of the machine's cores per outer job, for that job's own
+    # inner ProcessPoolExecutor (trix_common.fit_dev_times_parallel) to use --
+    # set before the outer pool is created so forked workers inherit it
+    # (see trix_common.INNER_WORKERS's own comment). len(jobs)==1 (e.g. a
+    # narrow --only within one family) correctly gets the whole machine.
+    trix_common.INNER_WORKERS = max(1, cpu_count // max(1, len(jobs)))
+
+    print(f"Building {len(jobs)} product famil{'y' if len(jobs) == 1 else 'ies'} "
+          f"across {outer_workers} process{'es' if outer_workers != 1 else ''} "
+          f"({cpu_count} CPUs, inner fit budget {trix_common.INNER_WORKERS}/job)")
+
+    results = {}
+    with ProcessPoolExecutor(max_workers=outer_workers) as ex:
+        futures = {ex.submit(fn, module_name): label for label, fn, module_name in jobs}
+        for fut in as_completed(futures):
+            label = futures[fut]
+            built = fut.result()
+            results.update(built)
+            print(f"=== {label}: built {len(built)} stock(s) ===")
+
+    stocks = sorted(requested)
+    validate_workers = min(len(stocks), cpu_count) or 1
+    with ThreadPoolExecutor(max_workers=validate_workers) as ex:
+        futures = [ex.submit(_validate_one, stock, results[stock][0], args.skip_external_validation)
+                   for stock in stocks]
+        for fut in as_completed(futures):
+            stock, report = fut.result()
+            if report is None:
+                continue
             status = "OK" if report.get("ok") else "FAILED"
-            print(f"  external validation (source profile, in-memory): {status} -- {report}")
+            print(f"  {stock} external validation (source profile, in-memory): {status} -- {report}")
 
 
 if __name__ == "__main__":

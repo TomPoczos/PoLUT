@@ -50,6 +50,17 @@ from stock_io import ansi_speed_ei, speed_point_x, write_raw_and_qa, write_singl
 NORMAL_CI_TARGET = 0.56
 NORMAL_CI_TOLERANCE = 0.01
 
+# Per-process worker budget for this module's OWN inner ProcessPoolExecutor,
+# set by main.py (before it forks its own, outer per-product-family pool --
+# see that module's docstring) to whatever's left of os.cpu_count() once the
+# outer pool's own concurrency is accounted for, so the two pooling layers
+# can never together oversubscribe the machine. `None` (the default, e.g.
+# when a product's own `if __name__ == "__main__": build_all()` block runs
+# this file standalone, outside main.py's dispatch) means "no outer pool
+# exists to share the budget with" -- fall back to the old os.cpu_count()
+# behavior in fit_dev_times_parallel below.
+INNER_WORKERS = None
+
 
 def _fit_one(dev_t, xs, ys, n_layers):
     """Module-level (picklable) worker for ProcessPoolExecutor -- must stay
@@ -66,6 +77,11 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
     ../curve_digitizer/product.py's own run_products_parallel(), which
     found 8 threads SLOWER than sequential but ProcessPoolExecutor a real
     ~3.8x speedup on the same CPU-bound workload).
+
+    Worker count is capped by module-global INNER_WORKERS when set (main.py's
+    outer per-product-family pool sizes this to its own remaining CPU budget
+    before dispatch -- see that global's own comment), else by plain
+    os.cpu_count() for standalone/interactive use.
 
     Returns {dev_t: (fit, base_density)}, same shape _fit_bracket's callers
     already expect -- QA plotting stays in the calling (main) process
@@ -84,7 +100,8 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
         xs_by_dev[dev_t] = xs
         ys_by_dev[dev_t] = ys_absolute - base_density
 
-    workers = min(len(dev_times), os.cpu_count() or 4)
+    budget = INNER_WORKERS if INNER_WORKERS is not None else (os.cpu_count() or 4)
+    workers = min(len(dev_times), max(1, budget))
     fits = {}
     with ProcessPoolExecutor(max_workers=workers) as ex:
         futures = [ex.submit(_fit_one, dev_t, xs_by_dev[dev_t], ys_by_dev[dev_t], n_layers)
