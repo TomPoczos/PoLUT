@@ -228,8 +228,25 @@ PRODUCTS = [
                               dye_density_merge_strategy="sequential_band"),
     lambda: reversal_product("film/kodak/e8-Ektachrome_64_EPR.pdf", 4, "Ektachrome 64 Professional EPR", 64, 2000,
                               skip_spectral_sensitivity=False, spectral_sensitivity_overline_symmetric=True),
+    # This page's real layout is a 2x2 grid (Characteristic top-left, Spectral-Sensitivity
+    # top-right, Spectral-Dye-Density bottom-left, Modulation-Transfer bottom-right, confirmed
+    # via direct render). Neither char_box nor dye_density_box can be left to
+    # get_panel_bboxes' auto-detection here: PANEL_TITLES doesn't include
+    # SPECTRAL_SENSITIVITY_TITLE (see that constant's own comment on why it's looked up
+    # separately), so the auto-detected char_box's right edge (396.5) runs well past this
+    # panel's own real content (drawn-frame bbox maxx=294, confirmed via page.get_drawings())
+    # and into Spectral-Sensitivity's column (starts x=346.5) -- and the auto right edge on
+    # dye_density_box would be even worse (a separate get_panel_bboxes call over just
+    # [char, dye-density] titles returns a box only 66pt wide, missing most of the real panel).
+    # Both explicit boxes below were derived from this file's own real text/drawing extents
+    # (get_text("words")/get_drawings() over page 4), confirmed via QA overlay to no longer
+    # bleed into the neighboring Spectral-Sensitivity/Modulation-Transfer panels -- this was a
+    # real bug (2026-07-10): the committed QA overlay showed Spectral-Sensitivity's own title/
+    # axis/legend text ghosted into the Characteristic subplot's background, and a sliver of
+    # Modulation-Transfer's "RESPONSE (%)" label ghosted into the Dye-Density subplot's.
     lambda: reversal_product("film/kodak/e27-Ektachrome_100_EPN.pdf", 4, "Ektachrome 100 Professional EPN", 100, 2000,
-                              dye_density_box=(48, 350, 340, 570)),
+                              char_box=(54, 107, 296, 335),
+                              dye_density_box=(48, 350, 290, 572)),
     lambda: reversal_product("film/kodak/e113-Ektachrome_100_plus_EPP.pdf", 4, "Ektachrome 100 Plus Professional EPP", 100, 2000),
     lambda: reversal_product("film/kodak/e130-Ektachrome_64T_EPY.pdf", 4, "Ektachrome 64T Professional EPY", 64, 2007,
                               dye_density_box=(320, 275, 560, 495)),
