@@ -100,9 +100,9 @@ def _d76_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("7min", label_regex=r"^7$"),
-            CurveSpec("9min", label_regex=r"^9$"),
-            CurveSpec("11min", label_regex=r"^11$"),
+            CurveSpec("7min", label_regex=r"^7$", qa_source="points_dense"),
+            CurveSpec("9min", label_regex=r"^9$", qa_source="points_dense"),
+            CurveSpec("11min", label_regex=r"^11$", qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -119,7 +119,7 @@ def _d76_ci_chart():
         pdf=str(PDF_PATH), page_index=7, chart_id="ci_vs_time_d76",
         x_tick_regex=r"^\d+$", y_tick_regex=r"\d\.\d",
         x_label="development_time_min", y_label="contrast_index",
-        curves=[CurveSpec("D-76", label_position_override=(166, 413))],
+        curves=[CurveSpec("D-76", label_position_override=(166, 413), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=20,
         metadata={"developer": "D-76", "process": "Large tank, 68F (20C)"},
@@ -133,10 +133,10 @@ def _tmax_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("5min", label_regex=r"^5$"),
-            CurveSpec("7min", label_regex=r"^7$"),
-            CurveSpec("9min", label_regex=r"^9$"),
-            CurveSpec("11min", label_regex=r"^11$"),
+            CurveSpec("5min", label_regex=r"^5$", qa_source="points_dense"),
+            CurveSpec("7min", label_regex=r"^7$", qa_source="points_dense"),
+            CurveSpec("9min", label_regex=r"^9$", qa_source="points_dense"),
+            CurveSpec("11min", label_regex=r"^11$", qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -159,7 +159,7 @@ def _tmax_ci_chart():
         pdf=str(PDF_PATH), page_index=7, chart_id="ci_vs_time_tmax_smalltank",
         x_tick_regex=r"^\d+$", y_tick_regex=r"\d\.\d",
         x_label="development_time_min", y_label="contrast_index",
-        curves=[CurveSpec("T-MAX", label_position_override=(470, 400))],
+        curves=[CurveSpec("T-MAX", label_position_override=(470, 400), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=20,
         metadata={"developer": "T-MAX", "process": "Small tank, 75F (24C)"},
@@ -172,7 +172,7 @@ def _spectral_sensitivity_chart():
         pdf=str(PDF_PATH), page_index=8, chart_id="spectral_sensitivity",
         x_tick_regex=r"\d{3}", y_tick_regex=r"\d\.0",
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec("1.0+Dmin", label_position_override=(471.5, 164.5))],
+        curves=[CurveSpec("1.0+Dmin", label_position_override=(471.5, 164.5), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=None, min_trace_points=10,
         metadata={"developer": "D-76", "process": "68F (20C)",
@@ -216,7 +216,13 @@ def build_all():
     # --- Spectral sensitivity (shared by both developer brackets) -----------
     spec_chart = _spectral_sensitivity_chart()
     spec_result = digitize_chart(spec_chart, PDF_PATH)
-    sens_points = spec_result["curves"]["1.0+Dmin"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["1.0+Dmin"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)
@@ -237,7 +243,10 @@ def build_all():
     d76_chart = _d76_chart()
     d76_result = digitize_chart(d76_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, d76_chart, d76_result, OUT_ROOT / "large_tank_d76")
-    d76_curves = {float(t.replace("min", "")): d76_result["curves"][t]["points"]
+    # points_dense throughout this file, not points -- see SIMPLIFY_TOLERANCE's
+    # comment in digitizer_core.py: fitting/interpolation should draw from the
+    # fullest-fidelity real data available, not the RDP-reduced QA/compactness set.
+    d76_curves = {float(t.replace("min", "")): d76_result["curves"][t]["points_dense"]
                   for t in ("7min", "9min", "11min")}
     d76_fits, d76_shift, d76_rep = _fit_bracket(d76_curves, D76_DEV_TIMES, D76_REP_IDX, "D-76",
                                                  OUT_ROOT / "large_tank_d76" / "qa")
@@ -245,7 +254,7 @@ def build_all():
     d76_ci_chart = _d76_ci_chart()
     d76_ci_result = digitize_chart(d76_ci_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, d76_ci_chart, d76_ci_result, OUT_ROOT / "large_tank_d76")
-    d76_ci_points = d76_ci_result["curves"]["D-76"]["points"]
+    d76_ci_points = d76_ci_result["curves"]["D-76"]["points_dense"]
 
     for dev_t in D76_DEV_TIMES:
         fit, base_density = d76_fits[dev_t]
@@ -268,7 +277,7 @@ def build_all():
     tmax_chart = _tmax_chart()
     tmax_result = digitize_chart(tmax_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, tmax_chart, tmax_result, OUT_ROOT / "small_tank_tmax")
-    tmax_curves = {float(t.replace("min", "")): tmax_result["curves"][t]["points"]
+    tmax_curves = {float(t.replace("min", "")): tmax_result["curves"][t]["points_dense"]
                    for t in ("5min", "7min", "9min", "11min")}
     tmax_fits, tmax_shift, tmax_rep = _fit_bracket(tmax_curves, TMAX_DEV_TIMES, TMAX_REP_IDX, "T-MAX",
                                                     OUT_ROOT / "small_tank_tmax" / "qa")
@@ -276,7 +285,7 @@ def build_all():
     tmax_ci_chart = _tmax_ci_chart()
     tmax_ci_result = digitize_chart(tmax_ci_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, tmax_ci_chart, tmax_ci_result, OUT_ROOT / "small_tank_tmax")
-    tmax_ci_points = tmax_ci_result["curves"]["T-MAX"]["points"]
+    tmax_ci_points = tmax_ci_result["curves"]["T-MAX"]["points_dense"]
 
     for dev_t in TMAX_DEV_TIMES:
         fit, base_density = tmax_fits[dev_t]

@@ -2,29 +2,29 @@
   "exposure_anchor": {
     "grade": "grade5",
     "panel": "characteristic_curve_grades_4_5",
-    "x_speed_criterion_1.0": 2.7109624738821565,
-    "applied_shift": -2.7109624738821565
+    "x_speed_criterion_1.0": 2.710557683741648,
+    "applied_shift": -2.710557683741648
   },
   "note": "no development_time family -- see module docstring; log_sensitivity_density_over_min=1.0 (this project's existing default criterion, not a standards citation -- Multigrade's own sheet publishes 0.5/1.0/1.5, not the ISO 6:1993 0.60 criterion Polymax used)",
   "curves": {
     "grade5": {
-      "r_squared": 0.9999776551276212,
-      "max_residual": 0.011577887007628185,
+      "r_squared": 0.9999928599569151,
+      "max_residual": 0.011912654308606552,
       "base_density": -0.0203,
       "centers": [
-        0.3776973118578524,
-        -0.024920667864732165,
-        0.007022772129492977
+        -0.019304230591678125,
+        0.00733926502014525,
+        0.3789932367953523
       ],
       "amplitudes": [
-        0.043325769918478634,
-        0.11878831634765707,
-        1.9016744200001388
+        0.11758221441422831,
+        1.9009938868045289,
+        0.045587938067036905
       ],
       "sigmas": [
-        0.06607622301945698,
-        0.02000000000000001,
-        0.12730656189483194
+        0.022425897879151568,
+        0.12795490700148557,
+        0.0727587876054376
       ]
     }
   }

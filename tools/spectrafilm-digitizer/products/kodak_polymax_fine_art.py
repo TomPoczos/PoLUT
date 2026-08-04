@@ -160,9 +160,9 @@ def _characteristic_curve_chart(panel_id):
     curves = []
     for name, label in curve_specs:
         if isinstance(label, str):
-            curves.append(CurveSpec(name, label_regex=label))
+            curves.append(CurveSpec(name, label_regex=label, qa_source="points_dense"))
         else:
-            curves.append(CurveSpec(name, label_position_override=label))
+            curves.append(CurveSpec(name, label_position_override=label, qa_source="points_dense"))
     return ChartSpec(
         pdf=str(PDF_PATH), page_index=PAGE_INDEX, chart_id=panel_id,
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
@@ -218,7 +218,7 @@ INDEX_BASED_PANELS = {
 def _digitize_panel_by_index(panel_id):
     from digitizer_core import (
         bin_average, extract_traces_in_region, fit_axis, isotonic_regression,
-        simplify_to_target, _dedupe_exact_traces,
+        simplify_by_tolerance, _dedupe_exact_traces,
     )
     region, _ = PANELS[panel_id]
     trace_grade_by_index, fingerprint = INDEX_BASED_PANELS[panel_id]
@@ -248,7 +248,7 @@ def _digitize_panel_by_index(panel_id):
         data_y = [ys * p + yi for p in pys]
         bx, by = bin_average(data_x, data_y, 400)
         by = np.array(isotonic_regression(by, increasing=True))
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         curves[name] = {
@@ -262,7 +262,7 @@ def _digitize_panel_by_index(panel_id):
         pdf=str(PDF_PATH), page_index=PAGE_INDEX, chart_id=panel_id,
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_lux_seconds", y_label="reflection_density",
-        curves=[CurveSpec(n) for n in trace_grade_by_index.values()],
+        curves=[CurveSpec(n, qa_source="points_dense") for n in trace_grade_by_index.values()],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         metadata={"developer": "Dektol (1:2)", "process": "Tray, 90 sec, 20C (68F)",
                   "densitometry": "Reflection", "filter_set": panel_id,
@@ -319,7 +319,7 @@ SPECTRAL_SENSITIVITY_NAMES_BY_LOG_SENS_DESC = ["D0.3+Dmin", "D0.6+Dmin", "D1.6+D
 
 def _digitize_spectral_sensitivity_by_rank():
     from digitizer_core import (
-        bin_average, extract_traces_in_region, simplify_to_target,
+        bin_average, extract_traces_in_region, simplify_by_tolerance,
         _dedupe_exact_traces, _interpolated_y_at_x, fit_axis,
     )
     doc = fitz.open(PDF_PATH)
@@ -346,7 +346,7 @@ def _digitize_spectral_sensitivity_by_rank():
         data_x = [xs * p + xi for p in pxs]
         data_y = [ys * p + yi for p in pys]
         bx, by = bin_average(data_x, data_y, 400)
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         curves[name] = {
@@ -360,7 +360,8 @@ def _digitize_spectral_sensitivity_by_rank():
         pdf=str(PDF_PATH), page_index=PAGE_INDEX, chart_id="spectral_sensitivity",
         x_tick_regex=r"\d{3}", y_tick_regex=r"\d\.0",
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec(n) for n in SPECTRAL_SENSITIVITY_NAMES_BY_LOG_SENS_DESC],
+        curves=[CurveSpec(n, qa_source="points_dense" if n == "D0.6+Dmin" else "points")
+                for n in SPECTRAL_SENSITIVITY_NAMES_BY_LOG_SENS_DESC],
         film_id="_unused", region_bbox=SPECTRAL_SENSITIVITY_REGION,
         extraction_method="vector_position",
         metadata={"developer": "Dektol (1:2)", "process": "Tray, 90 sec, 20C (68F)",
@@ -421,7 +422,10 @@ def build_grade(grade):
     panel_id = GRADE_TO_PANEL[grade]
     _write_panel_raw_and_qa(panel_id, OUT_DIR)
     _, panel_result = _get_panel_result(panel_id)
-    points = panel_result["curves"][grade]["points"]
+    # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+    # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+    # real data, not the RDP-reduced QA/compactness set.
+    points = panel_result["curves"][grade]["points_dense"]
 
     # --- Characteristic curve fit ---------------------------------------------
     base_density = min(y for _, y in points)
@@ -465,7 +469,13 @@ def build_grade(grade):
 
     # --- Spectral sensitivity: shared, copied into this grade's own folder -----
     spec_result = _write_spectral_sensitivity_raw_and_qa(OUT_DIR)
-    sens_points = spec_result["curves"]["D0.6+Dmin"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["D0.6+Dmin"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)

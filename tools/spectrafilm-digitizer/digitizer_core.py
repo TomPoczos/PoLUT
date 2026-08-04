@@ -61,6 +61,25 @@ class CurveSpec:
     # place of a `label_regex` text search. See ocr_helpers.py.
     label_position_override: tuple[float, float] | None = None
     tol: float = 0.05  # color-match tolerance for fill_rgb/stroke_rgb (0..1 scale)
+    # Which of digitize_chart()'s two output point sets a *consumer* actually
+    # builds its final output from: "points" (RDP-simplified, the default --
+    # right for anything that only feeds a smooth parametric fit downstream,
+    # e.g. every H&D density curve via density_model.fit_norm_cdfs, since a
+    # curve_fit doesn't care how many training points it gets) or
+    # "points_dense" (the 400pt bin-averaged curve -- right for anything
+    # that gets linearly resampled straight onto a fine output grid, e.g.
+    # every product's log_sensitivity onto canonical_grids.WAVELENGTHS_NM,
+    # since that step has no smoothing model to fall back on and chord-cuts
+    # through real curve features if fed the sparse RDP set instead, see
+    # SIMPLIFY_TOLERANCE's own comment). render_qa_overlay() reads this field
+    # to decide which set to actually draw as the curve's "final" line --
+    # it must match whatever the product's own build() consumes, or the QA
+    # image stops being a truthful preview of the shipped output (confirmed
+    # as a real, if short-lived, gap 2026-08-04: log_sensitivity moved to
+    # points_dense in every relevant product without this field existing yet,
+    # so the QA overlay kept drawing the now-unused points line and looked
+    # unchanged despite the shipped data actually improving).
+    qa_source: str = "points"
 
 
 @dataclass
@@ -1298,32 +1317,46 @@ def rdp(points, epsilon):
     return [start, end]
 
 
-def simplify_to_target(xs, ys, target_lo=20, target_hi=30, max_iters=40):
-    """Downsample a dense curve to ~target_lo..target_hi points via RDP,
-    binary-searching epsilon (in axis-normalized units, so it behaves
-    consistently regardless of the curve's actual x/y units/scale)."""
+SIMPLIFY_TOLERANCE = 0.001
+"""Default RDP perpendicular-distance tolerance for simplify_by_tolerance(),
+in axis-normalized units (fraction of the curve's own bounding box on each
+axis). Replaces an earlier design (simplify_to_target(), removed 2026-08-04)
+that binary-searched epsilon to force every curve into a fixed ~20-30-vertex
+budget regardless of how many genuine features it has. That worked fine for
+a simple monotonic H&D curve (one toe, one shoulder) but silently
+chord-cut through every real bend of a curve with more structure than that
+budget allows -- confirmed on Ilford FP4+'s spectral-sensitivity curve
+(several genuine peaks/troughs across ~300nm): the QA overlay visibly cut
+corners at every wiggle, and the simplified points -- which every product
+actually fits against, not just a QA plot -- deviated from the 400-point
+bin-averaged dense curve by up to several percent of full scale.
+
+This tolerance was chosen empirically against this project's own corpus of
+already-digitized curves (2026-08-04): it bounds worst-case deviation from
+the dense curve to ~1.6% of the curve's own y-span in the single worst case
+found (kodak_techpan's spectral-sensitivity curve), with most curves well
+under 1%, roughly a 10x fidelity improvement over the old target-count
+scheme. Vertex count is a *consequence* of this tolerance, not a target --
+it naturally lands around the old ~20-30-point range for a simple curve
+(nothing there to preserve past that) and grows only for a curve that
+actually has more real features to represent (measured range across the
+corpus: 7-55 points, mean ~28), rather than being forced to one fixed band
+regardless of curve complexity."""
+
+
+def simplify_by_tolerance(xs, ys, tolerance=SIMPLIFY_TOLERANCE):
+    """Downsample a dense curve via RDP, bounding the simplified polyline's
+    deviation from the input points to `tolerance` (in axis-normalized
+    units, so it behaves consistently regardless of the curve's actual
+    x/y units/scale) rather than targeting a fixed vertex count -- see
+    SIMPLIFY_TOLERANCE's own comment for why."""
     x_lo, x_hi = min(xs), max(xs)
     y_lo, y_hi = min(ys), max(ys)
     x_span = (x_hi - x_lo) or 1.0
     y_span = (y_hi - y_lo) or 1.0
     norm_pts = [((x - x_lo) / x_span, (y - y_lo) / y_span) for x, y in zip(xs, ys)]
-
-    lo_eps, hi_eps = 1e-5, 0.2
-    best = None
-    for _ in range(max_iters):
-        mid = (lo_eps + hi_eps) / 2
-        simplified = rdp(norm_pts, mid)
-        n = len(simplified)
-        if target_lo <= n <= target_hi:
-            best = simplified
-            break
-        if n > target_hi:
-            lo_eps = mid
-        else:
-            hi_eps = mid
-        best = simplified
-    out = [(nx * x_span + x_lo, ny * y_span + y_lo) for nx, ny in best]
-    return out
+    simplified = rdp(norm_pts, tolerance)
+    return [(nx * x_span + x_lo, ny * y_span + y_lo) for nx, ny in simplified]
 
 
 def bin_average(xs, ys, n_bins):
@@ -1410,14 +1443,16 @@ def render_qa_overlay(chart_results, out_path):
             px_c = [(x - clip.x0) * scale for x in px]
             py_c = [(y - clip.y0) * scale for y in py]
             ax.plot(px_c, py_c, "-", lw=0.5, color=color, alpha=0.35, label=f"{curve.name} (raw)")
-            simp_x = [p[0] for p in results[curve.name]["points"]]
-            simp_y = [p[1] for p in results[curve.name]["points"]]
+            simp_x = [p[0] for p in results[curve.name][curve.qa_source]]
+            simp_y = [p[1] for p in results[curve.name][curve.qa_source]]
             simp_px = [(x - xi) / xs for x in simp_x]
             simp_py = [(y - yi) / ys for y in simp_y]
             simp_px_c = [(x - clip.x0) * scale for x in simp_px]
             simp_py_c = [(y - clip.y0) * scale for y in simp_py]
-            ax.plot(simp_px_c, simp_py_c, "-o", lw=1.2, ms=2.5, color=color,
-                    label=f"{curve.name} (simplified, n={len(simp_x)})")
+            marker = "-o" if curve.qa_source == "points" else "-"
+            ms = 2.5 if curve.qa_source == "points" else 0.0
+            ax.plot(simp_px_c, simp_py_c, marker, lw=1.2, ms=ms, color=color,
+                    label=f"{curve.name} (final, {curve.qa_source}, n={len(simp_x)})")
         ax.legend(fontsize=6, loc="upper left")
         ax.set_title(chart.chart_id, fontsize=9, pad=10)
         ax.axis("off")
@@ -1535,7 +1570,7 @@ def digitize_chart(chart: ChartSpec, pdf_path: Path) -> dict:
         bx, by = bin_average(data_x, data_y, chart.n_bins)
         if chart.monotonic_direction is not None:
             by = np.array(isotonic_regression(by, increasing=chart.monotonic_direction == "increasing"))
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         v_inc = count_violations(sy, increasing=True)

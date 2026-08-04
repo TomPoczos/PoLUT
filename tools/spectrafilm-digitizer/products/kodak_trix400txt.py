@@ -78,10 +78,10 @@ def _hd_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("5.5min", label_position_override=(376, 230)),
-            CurveSpec("7min", label_position_override=(308, 220)),
-            CurveSpec("8.5min", label_position_override=(325, 200)),
-            CurveSpec("10min", label_position_override=(375, 181)),
+            CurveSpec("5.5min", label_position_override=(376, 230), qa_source="points_dense"),
+            CurveSpec("7min", label_position_override=(308, 220), qa_source="points_dense"),
+            CurveSpec("8.5min", label_position_override=(325, 200), qa_source="points_dense"),
+            CurveSpec("10min", label_position_override=(375, 181), qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -102,7 +102,7 @@ def _ci_chart():
         pdf=str(PDF_PATH), page_index=10, chart_id="ci_vs_time_txt_hc110",
         x_tick_regex=r"^\d+$", y_tick_regex=r"\d\.\d",
         x_label="development_time_min", y_label="contrast_index",
-        curves=[CurveSpec("HC-110", label_position_override=(337.7, 424.4))],
+        curves=[CurveSpec("HC-110", label_position_override=(337.7, 424.4), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=20,
         metadata={"developer": "HC-110 (Dilution B)", "process": "Large tank, 70F (21C)"},
@@ -115,7 +115,7 @@ def _spectral_sensitivity_chart():
         pdf=str(PDF_PATH), page_index=8, chart_id="spectral_sensitivity_shared_tx",
         x_tick_regex=r"\d{3}", y_tick_regex=r"\d\.0",
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec("1.0+Dmin", label_position_override=(471.5, 164.5))],
+        curves=[CurveSpec("1.0+Dmin", label_position_override=(471.5, 164.5), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=None, min_trace_points=10,
         metadata={"developer": "D-76", "process": "68F (20C)",
@@ -132,7 +132,13 @@ def build_all():
 
     spec_chart = _spectral_sensitivity_chart()
     spec_result = digitize_chart(spec_chart, PDF_PATH)
-    sens_points = spec_result["curves"]["1.0+Dmin"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["1.0+Dmin"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)
@@ -150,7 +156,10 @@ def build_all():
     hd_chart = _hd_chart()
     hd_result = digitize_chart(hd_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, hd_chart, hd_result, OUT_ROOT)
-    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points"]
+    # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+    # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+    # real data, not the RDP-reduced QA/compactness set.
+    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points_dense"]
                      for t in ("5.5min", "7min", "8.5min", "10min")}
 
     rep_dev = DEV_TIMES[REP_IDX]
@@ -173,7 +182,7 @@ def build_all():
     ci_chart = _ci_chart()
     ci_result = digitize_chart(ci_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, ci_chart, ci_result, OUT_ROOT)
-    ci_points = ci_result["curves"]["HC-110"]["points"]
+    ci_points = ci_result["curves"]["HC-110"]["points_dense"]
 
     written = {}
     for dev_t in DEV_TIMES:

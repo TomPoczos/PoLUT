@@ -76,7 +76,7 @@ import density_model as dm
 import exposure_calibration as ec
 import stock_io
 from digitizer_core import ChartSpec, CurveSpec, bin_average, count_violations, digitize_chart, fit_axis, \
-    isotonic_regression, simplify_to_target
+    isotonic_regression, simplify_by_tolerance
 from ocr_helpers import ocr_axis_calib
 from raster_tracer import build_scan_mask, detect_gridlines, load_ink_mask, trace_curves
 
@@ -151,7 +151,7 @@ def characteristic_curve_chart(pdf_path, page_index, x_tick_regex=r"^[1234]$", y
         pdf=str(pdf_path), page_index=page_index, chart_id="characteristic_curve",
         x_tick_regex=x_tick_regex, y_tick_regex=y_tick_regex,
         x_label="relative_log_exposure", y_label="density_diffuse_visual",
-        curves=[CurveSpec("density", label_position_override=anchor_xy)],
+        curves=[CurveSpec("density", label_position_override=anchor_xy, qa_source="points_dense")],
         film_id="_unused", extraction_method="vector_position",
         region_bbox=box, axis_word_bbox=tick_box,
         x_axis_calib_override=x_axis_calib_override, y_axis_calib_override=y_axis_calib_override,
@@ -192,11 +192,19 @@ def characteristic_curve_points_raster(
     the same raster image as the curve (fit_axis's real-text search finds
     nothing), so there is no vector-text case to try first for this chart.
 
-    Returns (points, qa_png_path): `points` in the same absolute-density
-    (x=relative_log_exposure, y=density) units and list-of-tuples shape as
-    characteristic_curve_chart() + digitize_chart()'s own
-    `result["curves"]["density"]["points"]`, so it's a drop-in replacement
-    at build_single_stock_bw_negative()'s own call site."""
+    Returns (points, points_dense, qa_png_path): `points`/`points_dense` in
+    the same absolute-density (x=relative_log_exposure, y=density) units and
+    list-of-tuples shape as characteristic_curve_chart() + digitize_chart()'s
+    own `result["curves"]["density"]["points"/"points_dense"]`, so callers
+    can apply the same points_dense-for-fitting policy (see
+    SIMPLIFY_TOLERANCE's comment in digitizer_core.py) uniformly regardless
+    of which extraction tier a given film's Characteristic Curve panel needs.
+    Bins to 400 points, the same convention digitize_chart() uses, not some
+    other count -- the column-scan raw trace (one sample per pixel column)
+    is plenty dense for that; an earlier version of this function binned to
+    only 60 before simplifying, which was fine back when only the RDP-
+    simplified `points` ever got used downstream, but is real, avoidable
+    fidelity loss now that `points_dense` is the actual fitting source."""
     doc = fitz.open(str(pdf_path))
     page = doc[page_index]
     words_all = page.get_text("words")
@@ -240,13 +248,14 @@ def characteristic_curve_points_raster(
 
     data_x = [csx * p[0] + cix for p in tr]
     data_y = [csy * p[1] + ciy for p in tr]
-    bx, by = bin_average(data_x, data_y, 60)
+    bx, by = bin_average(data_x, data_y, 400)
     by = np.array(isotonic_regression(by, increasing=(monotonic_direction == "increasing")))
-    simplified = simplify_to_target(bx, by)
+    simplified = simplify_by_tolerance(bx, by)
     sx = [round(float(x), 4) for x, y in simplified]
     sy = [round(float(y), 4) for x, y in simplified]
     n_violations = min(count_violations(sy, increasing=True), count_violations(sy, increasing=False))
     points = list(zip(sx, sy))
+    points_dense = [(round(float(x), 4), round(float(y), 4)) for x, y in zip(bx, by)]
 
     qa_dir = out_root / "qa"
     qa_dir.mkdir(parents=True, exist_ok=True)
@@ -254,7 +263,13 @@ def characteristic_curve_points_raster(
     extent = [csx * 0 + cix, csx * img_w + cix, csy * img_h + ciy, csy * 0 + ciy]
     fig, ax = plt.subplots(figsize=(9, 7))
     ax.imshow(np.where(ink, 1, 0), cmap="gray", extent=extent, aspect="auto")
-    ax.plot(sx, sy, "o-", markersize=3, color="tab:red", label=f"density (n={len(points)})")
+    # Plot points_dense (what's actually fit downstream now), not points --
+    # same qa_source policy CurveSpec.qa_source encodes for digitize_chart()'s
+    # own QA overlay, applied here by hand since this raster path renders its
+    # own QA image rather than going through render_qa_overlay().
+    dx = [p[0] for p in points_dense]
+    dy = [p[1] for p in points_dense]
+    ax.plot(dx, dy, "-", linewidth=1.2, color="tab:red", label=f"density (final, points_dense, n={len(points_dense)})")
     ax.legend(fontsize=8, loc="best")
     ax.set_xlabel("relative_log_exposure")
     ax.set_ylabel("density_diffuse_visual")
@@ -267,6 +282,7 @@ def characteristic_curve_points_raster(
     (raw_dir / "characteristic_curve.json").write_text(json.dumps({
         "extraction_method": "raster_column_scan",
         "points": points,
+        "points_dense": points_dense,
         "n_raw_vertices": len(tr),
         "n_violations": n_violations,
         "qa_overlay_png": qa_path.name,
@@ -274,8 +290,8 @@ def characteristic_curve_points_raster(
 
     doc.close()
     print(f"  characteristic_curve (raster_column_scan): {len(tr)} raw points -> "
-          f"{len(points)} simplified points, n_violations={n_violations}")
-    return points, qa_path
+          f"{len(points_dense)} dense -> {len(points)} simplified points, n_violations={n_violations}")
+    return points_dense, qa_path
 
 
 def spectral_sensitivity_chart(pdf_path, page_index, x_tick_regex=r"^\d{3}$", y_tick_regex=r"^\d\.\d$"):
@@ -330,7 +346,7 @@ def spectral_sensitivity_chart(pdf_path, page_index, x_tick_regex=r"^\d{3}$", y_
         pdf=str(pdf_path), page_index=page_index, chart_id="spectral_sensitivity",
         x_tick_regex=x_tick_regex, y_tick_regex=y_tick_regex,
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec("sensitivity", label_position_override=anchor_xy)],
+        curves=[CurveSpec("sensitivity", label_position_override=anchor_xy, qa_source="points_dense")],
         film_id="_unused", extraction_method="vector_position",
         region_bbox=box, axis_word_bbox=tick_box,
         x_axis_calib_override=x_axis_calib_override, y_axis_calib_override=y_axis_calib_override,
@@ -373,20 +389,20 @@ def build_single_stock_bw_negative(
         char_chart = characteristic_curve_chart(pdf_path, char_page_index, char_x_tick_regex, char_y_tick_regex)
         char_result = digitize_chart(char_chart, pdf_path)
         stock_io.write_raw_and_qa(pdf_path, char_chart, char_result, out_root)
-        # The RDP-simplified `points` (same convention Tri-X's own products fit
-        # against) -- NOT points_dense. An earlier version of this function fit
-        # against points_dense instead, working around a real bug that's now
-        # fixed at its actual source: digitizer_core.py's extract_traces_in_region
-        # was treating Bezier curve control points as literal digitized samples
-        # (HP5 Plus's Characteristic Curve is drawn as just 3 long Bezier
-        # segments, unlike Kodak's finely-segmented polylines), which silently
-        # cut a corner through the toe and left only 11 badly-placed simplified
-        # points. Now that extraction properly evaluates the Bezier curve
-        # (_flatten_path_item), the simplified set is 22 well-distributed points
-        # and fits just as well as the dense set (R^2 0.99997 vs 0.99999,
-        # confirmed side by side) -- so there's no more reason to diverge from
-        # Tri-X's own convention here.
-        points = char_result["curves"]["density"]["points"]
+        # points_dense (400pt bin-averaged), not points (RDP-simplified) -- see
+        # SIMPLIFY_TOLERANCE's comment in digitizer_core.py: every product's
+        # fitting/interpolation now draws from the fullest-fidelity real data
+        # available, not the RDP-reduced QA/compactness set, project-wide
+        # (2026-08-04). Superseded here an earlier, narrower argument (fit
+        # quality was already equal either way once the real Bezier-control-
+        # point extraction bug on HP5 Plus's Characteristic Curve was fixed,
+        # R^2 0.99997 vs 0.99999) for using `points` specifically -- that
+        # argument was true as far as it went (a curve_fit doesn't care about
+        # training-point density once it's already well past what the fit
+        # needs), but "no measurable downside to the fuller-fidelity source"
+        # is itself a reason to prefer it consistently, not a reason to keep
+        # the narrower one around.
+        points = char_result["curves"]["density"]["points_dense"]
     elif char_extraction == "raster":
         points, _qa_path = characteristic_curve_points_raster(
             pdf_path, char_page_index, out_root, **(char_raster_kwargs or {}),
@@ -397,7 +413,15 @@ def build_single_stock_bw_negative(
     spec_chart = spectral_sensitivity_chart(pdf_path, spectral_page_index)
     spec_result = digitize_chart(spec_chart, pdf_path)
     stock_io.write_raw_and_qa(pdf_path, spec_chart, spec_result, out_root)
-    sens_points = spec_result["curves"]["sensitivity"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- unlike
+    # the density curve above (which only feeds a smooth parametric fit, so
+    # the RDP-reduced set is fine there, see that block's own comment), this
+    # curve gets linearly resampled straight onto the 5nm output grid below.
+    # That step needs the dense curve's much finer spacing or it chord-cuts
+    # through real peaks/troughs (confirmed on Ilford FP4+, 2026-08-04): the
+    # RDP-reduced set is for QA/compactness, not for being the actual
+    # resampling source. See digitizer_core.py's SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["sensitivity"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)

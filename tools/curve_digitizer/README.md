@@ -25,12 +25,20 @@ precise as the original document's own vector geometry.
    property (density vs. exposure) - leave it `None` for anything with a
    genuine non-monotonic shape (e.g. a spectral sensitivity peak), where
    "violations" are the real curve, not noise to remove.
-5. `simplify_to_target()` downsamples the dense curve to ~20-30 points via
-   Ramer-Douglas-Peucker, binary-searching epsilon to hit that range. This
-   matches the point count every other curve in `generate_film_looks.py`
-   already uses (~15-40 hand-picked points), and gives adaptive spacing
-   (denser at toes/knees/shoulders, sparse on straight runs) rather than a
-   naive uniform grid. Note RDP alone *preserves* whatever point deviates
+5. `simplify_by_tolerance()` downsamples the dense curve via
+   Ramer-Douglas-Peucker at a fixed perpendicular-distance tolerance
+   (`SIMPLIFY_TOLERANCE`, normalized units - see its own comment), not a
+   target vertex count. An earlier version binary-searched epsilon to force
+   every curve into a fixed ~20-30-point band; that undershot badly on any
+   curve with more real features than that budget allows (a multi-peak
+   spectral-sensitivity curve, confirmed on Ilford FP4+, 2026-08-04) and
+   visibly chord-cut through the real shape. Tolerance-based simplification
+   gives the same adaptive spacing (denser at toes/knees/shoulders, sparse
+   on straight runs) but lets vertex count grow with actual curve
+   complexity instead of capping it - point count still lands in roughly
+   the ~20-30 range other hand-picked curves in `generate_film_looks.py`
+   use for a simple curve, and higher only where the curve genuinely needs
+   it. Note RDP alone *preserves* whatever point deviates
    most from a straight-line fit in each segment - on a noisy curve that's
    as likely to be a jitter spike as real curve shape, which is exactly why
    step 4 (monotonicity enforcement) has to happen *before* simplification,

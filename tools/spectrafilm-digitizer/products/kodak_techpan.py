@@ -224,7 +224,7 @@ def _dual_inset(out_root, page_index, chart_id_prefix, region, x_tick_bbox, ci_y
         pdf=str(PDF_PATH), page_index=page_index, chart_id=f"{chart_id_prefix}_CI",
         x_tick_regex=r"^\d+$", y_tick_regex=ci_y_tick_regex,
         x_label="development_time_min", y_label="contrast_index",
-        curves=[CurveSpec("CI", label_position_override=ci_pos)],
+        curves=[CurveSpec("CI", label_position_override=ci_pos, qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=monotonic, min_trace_points=8,
         x_tick_bbox=x_tick_bbox, y_tick_bbox=ci_y_tick_bbox,
@@ -236,7 +236,7 @@ def _dual_inset(out_root, page_index, chart_id_prefix, region, x_tick_bbox, ci_y
         pdf=str(PDF_PATH), page_index=page_index, chart_id=f"{chart_id_prefix}_EI",
         x_tick_regex=r"^\d+$", y_tick_regex=r"^\d+$",
         x_label="development_time_min", y_label="exposure_index",
-        curves=[CurveSpec("EI", label_position_override=ei_pos)],
+        curves=[CurveSpec("EI", label_position_override=ei_pos, qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=monotonic, min_trace_points=8,
         x_tick_bbox=x_tick_bbox, y_tick_bbox=ei_y_tick_bbox,
@@ -244,7 +244,7 @@ def _dual_inset(out_root, page_index, chart_id_prefix, region, x_tick_bbox, ci_y
     ei_result = digitize_chart(ei_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, ei_chart, ei_result, out_root)
 
-    return ci_result["curves"]["CI"]["points"], ei_result["curves"]["EI"]["points"]
+    return ci_result["curves"]["CI"]["points_dense"], ei_result["curves"]["EI"]["points_dense"]
 
 
 def _spectral_sensitivity_chart():
@@ -255,7 +255,7 @@ def _spectral_sensitivity_chart():
         x_label="wavelength_nm", y_label="log_sensitivity",
         curves=[
             CurveSpec("0.3+Dmin", label_position_override=(444.0, 128.0)),
-            CurveSpec("1.0+Dmin", label_position_override=(461.0, 189.0)),
+            CurveSpec("1.0+Dmin", label_position_override=(461.0, 189.0), qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=None, min_trace_points=12,
@@ -303,10 +303,10 @@ def _technidol_hd_chart():
     return _hd_chart(
         10, "characteristic_curve_technidol", region,
         curves=[
-            CurveSpec("5min", label_position_override=(219.9, 194.15)),
-            CurveSpec("7min", label_position_override=(237.0, 181.55)),
-            CurveSpec("9min", label_position_override=(183.65, 149.25)),
-            CurveSpec("11min", label_position_override=(193.35, 138.45)),
+            CurveSpec("5min", label_position_override=(219.9, 194.15), qa_source="points_dense"),
+            CurveSpec("7min", label_position_override=(237.0, 181.55), qa_source="points_dense"),
+            CurveSpec("9min", label_position_override=(183.65, 149.25), qa_source="points_dense"),
+            CurveSpec("11min", label_position_override=(193.35, 138.45), qa_source="points_dense"),
         ],
         metadata={"developer": "KODAK TECHNIDOL Liquid", "process": "Small tank, 68F (20C)",
                   "densitometry": "Diffuse visual", "exposure": "Daylight, 1/25 second"},
@@ -317,7 +317,10 @@ def _build_technidol(log_sensitivity):
     hd_chart = _technidol_hd_chart()
     hd_result = digitize_chart(hd_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, hd_chart, hd_result, TECHNIDOL_OUT)
-    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points"]
+    # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+    # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+    # real data, not the RDP-reduced QA/compactness set.
+    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points_dense"]
                      for t in ("5min", "7min", "9min", "11min")}
 
     for dev_t in TECHNIDOL_DEV_TIMES:
@@ -364,17 +367,17 @@ def _build_hc110b(log_sensitivity):
     hd_chart = _hd_chart(
         9, "characteristic_curve_hc110b", (325, 28, 560, 278),
         curves=[
-            CurveSpec("4min", label_position_override=(477, 206.25)),
-            CurveSpec("6min", label_position_override=(484, 195.25)),
-            CurveSpec("8min", label_position_override=(489, 183.95)),
-            CurveSpec("12min", label_position_override=(497, 173.15)),
+            CurveSpec("4min", label_position_override=(477, 206.25), qa_source="points_dense"),
+            CurveSpec("6min", label_position_override=(484, 195.25), qa_source="points_dense"),
+            CurveSpec("8min", label_position_override=(489, 183.95), qa_source="points_dense"),
+            CurveSpec("12min", label_position_override=(497, 173.15), qa_source="points_dense"),
         ],
         metadata={"developer": "KODAK HC-110 Developer (Dilution B)", "process": "Small tank, 68F (20C)",
                   "densitometry": "Diffuse visual", "exposure": "Daylight, 1/25 second"},
     )
     hd_result = digitize_chart(hd_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, hd_chart, hd_result, HC110B_OUT)
-    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points"]
+    curves_by_dev = {float(t.replace("min", "")): hd_result["curves"][t]["points_dense"]
                      for t in ("4min", "6min", "8min", "12min")}
 
     ci_points, ei_points = _dual_inset(
@@ -420,7 +423,13 @@ def build_all():
     spec_chart = _spectral_sensitivity_chart()
     spec_result = digitize_chart(spec_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, spec_chart, spec_result, OUT_ROOT)
-    sens_points = spec_result["curves"]["1.0+Dmin"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["1.0+Dmin"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)

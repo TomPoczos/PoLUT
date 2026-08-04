@@ -150,7 +150,7 @@ def _characteristic_curve_chart(panel_id):
         pdf=str(PDF_PATH), page_index=CHAR_PAGE_INDEX, chart_id=panel_id,
         x_tick_regex=r"\d", y_tick_regex=r"\d\.\d",
         x_label="relative_log_exposure", y_label="density",
-        curves=[CurveSpec(n) for n in names],
+        curves=[CurveSpec(n, qa_source="points_dense") for n in names],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=6,
         split_on_x_reversal=True, reversal_run_length=5,
@@ -218,7 +218,9 @@ def _spectral_sensitivity_chart():
         pdf=str(PDF_PATH), page_index=SPECTRAL_PAGE_INDEX, chart_id="spectral_sensitivity",
         x_tick_regex=r"^\d{3}$", y_tick_regex=r"^[123]\.0$",
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec(n, label_position_override=pos) for n, pos in SPECTRAL_CURVES],
+        curves=[CurveSpec(n, label_position_override=pos,
+                           qa_source="points_dense" if n == SPECTRAL_DENSITY_CRITERION else "points")
+                for n, pos in SPECTRAL_CURVES],
         film_id="_unused", region_bbox=SPECTRAL_REGION,
         x_tick_bbox=SPECTRAL_X_TICK_BBOX, y_tick_bbox=SPECTRAL_Y_TICK_BBOX,
         extraction_method="vector_position", monotonic_direction=None, min_trace_points=10,
@@ -276,7 +278,10 @@ def build_grade(grade):
     panel_id = GRADE_TO_PANEL[grade]
     _write_panel_raw_and_qa(panel_id, OUT_DIR)
     _, panel_result = _get_panel_result(panel_id)
-    points = panel_result["curves"][grade]["points"]
+    # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+    # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+    # real data, not the RDP-reduced QA/compactness set.
+    points = panel_result["curves"][grade]["points_dense"]
 
     # --- Characteristic curve fit ---------------------------------------------
     base_density = min(y for _, y in points)
@@ -322,7 +327,13 @@ def build_grade(grade):
 
     # --- Spectral sensitivity: shared, copied into this grade's own folder -----
     spec_result = _write_spectral_sensitivity_raw_and_qa(OUT_DIR)
-    sens_points = spec_result["curves"][SPECTRAL_DENSITY_CRITERION]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"][SPECTRAL_DENSITY_CRITERION]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)

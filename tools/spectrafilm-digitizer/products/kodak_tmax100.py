@@ -122,9 +122,9 @@ def _d76_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("6min", label_regex=r"^6$"),
-            CurveSpec("7.5min", label_regex=r"^7\.5$"),
-            CurveSpec("10min", label_regex=r"^10$"),
+            CurveSpec("6min", label_regex=r"^6$", qa_source="points_dense"),
+            CurveSpec("7.5min", label_regex=r"^7\.5$", qa_source="points_dense"),
+            CurveSpec("10min", label_regex=r"^10$", qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -142,10 +142,10 @@ def _tmaxrs_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("8min", label_regex=r"^8$"),
-            CurveSpec("10.5min", label_regex=r"^10\.5$"),
-            CurveSpec("13min", label_regex=r"^13$"),
-            CurveSpec("15min", label_regex=r"^15$"),
+            CurveSpec("8min", label_regex=r"^8$", qa_source="points_dense"),
+            CurveSpec("10.5min", label_regex=r"^10\.5$", qa_source="points_dense"),
+            CurveSpec("13min", label_regex=r"^13$", qa_source="points_dense"),
+            CurveSpec("15min", label_regex=r"^15$", qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -163,10 +163,10 @@ def _tmax_chart():
         x_tick_regex=r"\d\.0", y_tick_regex=r"\d\.0",
         x_label="log_exposure_relative", y_label="density_diffuse_visual",
         curves=[
-            CurveSpec("6min", label_regex=r"^6$"),
-            CurveSpec("7min", label_regex=r"^7$"),
-            CurveSpec("10min", label_regex=r"^10$"),
-            CurveSpec("12min", label_regex=r"^12$"),
+            CurveSpec("6min", label_regex=r"^6$", qa_source="points_dense"),
+            CurveSpec("7min", label_regex=r"^7$", qa_source="points_dense"),
+            CurveSpec("10min", label_regex=r"^10$", qa_source="points_dense"),
+            CurveSpec("12min", label_regex=r"^12$", qa_source="points_dense"),
         ],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
@@ -183,7 +183,7 @@ def _spectral_sensitivity_chart():
         pdf=str(PDF_PATH), page_index=7, chart_id="spectral_sensitivity",
         x_tick_regex=r"\d{3}", y_tick_regex=r"\d\.0",
         x_label="wavelength_nm", y_label="log_sensitivity",
-        curves=[CurveSpec("1.0+Dmin", label_position_override=(164.7, 583.0))],
+        curves=[CurveSpec("1.0+Dmin", label_position_override=(164.7, 583.0), qa_source="points_dense")],
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction=None, min_trace_points=10,
         metadata={"developer": "D-76", "process": "68F (20C)",
@@ -222,7 +222,13 @@ def build_all():
     spec_chart = _spectral_sensitivity_chart()
     spec_result = digitize_chart(spec_chart, PDF_PATH)
     tc.write_raw_and_qa(PDF_PATH, spec_chart, spec_result, OUT_ROOT / "spectral_sensitivity")
-    sens_points = spec_result["curves"]["1.0+Dmin"]["points"]
+    # points_dense (400pt bin-averaged), not points (RDP-simplified) -- this
+    # curve gets linearly resampled straight onto the 5nm output grid below,
+    # so it needs the dense curve's much finer spacing to avoid chord-cutting
+    # through real peaks/troughs; the RDP-reduced set is for QA/compactness,
+    # not for being the actual resampling source. See digitizer_core.py's
+    # SIMPLIFY_TOLERANCE comment.
+    sens_points = spec_result["curves"]["1.0+Dmin"]["points_dense"]
     sens_x = np.array([p[0] for p in sens_points])
     sens_y = np.array([p[1] for p in sens_points])
     order = np.argsort(sens_x)
@@ -243,7 +249,10 @@ def build_all():
         chart = chart_fn()
         result = digitize_chart(chart, PDF_PATH)
         tc.write_raw_and_qa(PDF_PATH, chart, result, OUT_ROOT / subdir)
-        curves_by_dev = {float(name.replace("min", "")): result["curves"][name]["points"]
+        # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+        # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+        # real data, not the RDP-reduced QA/compactness set.
+        curves_by_dev = {float(name.replace("min", "")): result["curves"][name]["points_dense"]
                           for name in dev_key_names}
         fits, shift, rep_dev = _fit_bracket(curves_by_dev, dev_times, rep_idx, label,
                                              OUT_ROOT / subdir / "qa")

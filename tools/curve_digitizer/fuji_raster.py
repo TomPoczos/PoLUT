@@ -78,7 +78,7 @@ from pathlib import Path
 import fitz
 import numpy as np
 
-from digitizer_core import bin_average, count_violations, isotonic_regression, simplify_to_target
+from digitizer_core import bin_average, count_violations, isotonic_regression, simplify_by_tolerance
 from ocr_helpers import ocr_axis_calib
 from product import CONSOLIDATED_ROOT, PDF_ROOT, _slug
 from raster_tracer import build_scan_mask, detect_gridlines, load_ink_mask, trace_curves
@@ -219,7 +219,7 @@ def digitize_raster_chart(pdf_stub, page_index, image_index, x_tick_bbox, y_tick
         data_y = [csy * p + ciy for p in pys]
         bx, by = bin_average(data_x, data_y, 60)
         by = np.array(isotonic_regression(by, increasing=(monotonic == "increasing")))
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         v_inc = count_violations(sy, increasing=True)
@@ -495,7 +495,7 @@ def digitize_spliced_raster_chart(pdf_stub, page_index, image_index, x_tick_bbox
         data_y = [csy * p[1] + ciy for p in full]
         bx, by = bin_average(data_x, data_y, 60)
         by = np.array(isotonic_regression(by, increasing=(monotonic == "increasing")))
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         v_inc = count_violations(sy, increasing=True)
@@ -647,7 +647,7 @@ def digitize_multilayer_raster_chart(pdf_stub, page_index, curve_xrefs, x_tick_b
         data_y = [csy * p[1] + ciy for p in raw]
         bx, by = bin_average(data_x, data_y, 60)
         by = np.array(isotonic_regression(by, increasing=(monotonic == "increasing")))
-        simplified = simplify_to_target(bx, by)
+        simplified = simplify_by_tolerance(bx, by)
         sx = [round(float(x), 4) for x, y in simplified]
         sy = [round(float(y), 4) for x, y in simplified]
         v_inc = count_violations(sy, increasing=True)
