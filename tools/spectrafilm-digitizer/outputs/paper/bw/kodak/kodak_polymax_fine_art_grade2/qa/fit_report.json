@@ -5,7 +5,7 @@
     "x_speed_kodak_chart": 1.252452427184466,
     "applied_shift": -1.252452427184466
   },
-  "note": "no development_time family -- see module docstring; density_over_min=0.6 (ISO 6:1993 paper speed criterion), not the 1.0 film convention",
+  "note": "no development_time family -- see module docstring; density_over_min=0.6 (ISO 6846:1992/ANSI PH2.2-1972 real paper speed criterion, via stock_io.PAPER_SPEED_CRITERION -- not the 1.0 film convention, and not ISO 6:1993, which is the different standard for camera negative film speed)",
   "curves": {
     "grade2": {
       "r_squared": 0.9999907523531354,

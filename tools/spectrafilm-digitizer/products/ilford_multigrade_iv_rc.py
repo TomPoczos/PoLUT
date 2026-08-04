@@ -87,6 +87,7 @@ import numpy as np
 import canonical_grids as grids
 import density_model as dm
 import spektra_profile as sp
+import stock_io
 from digitizer_core import ChartSpec, CurveSpec, digitize_chart, render_qa_overlay
 from ocr_helpers import ocr_axis_calib
 
@@ -207,9 +208,14 @@ SPECTRAL_CURVES = [
     ("d1_0", (451.4, 641.8)),
     ("d1_5", (451.4, 662.0)),
 ]
-# Multigrade's sheet doesn't publish the ISO 6:1993 0.60 paper-speed criterion
-# kodak_polymax_fine_art.py used -- only 0.5/1.0/1.5. 1.0 is picked as this project's already-
-# established default criterion (Tri-X etc.), not a standards citation.
+# Multigrade's sheet doesn't publish a spectral-sensitivity curve at the real ISO 6846 0.60
+# paper-speed criterion (see stock_io.PAPER_SPEED_CRITERION) -- only 0.5/1.0/1.5. 1.0 is picked
+# here as the closest available digitized curve; this is just documentation of which
+# log_sensitivity shape was used and doesn't need to match the characteristic-curve exposure
+# anchor below (stock_io.paper_speed_point_x(), the real 0.6 criterion) -- a paper's absolute
+# log_sensitivity scale cancels out of the print render regardless of value (see
+# stock_io.PAPER_SPEED_CRITERION's own comment), so this criterion choice has no rendering
+# consequence, unlike the exposure anchor's.
 SPECTRAL_DENSITY_CRITERION = "d1_0"
 
 
@@ -258,13 +264,6 @@ def _write_spectral_sensitivity_raw_and_qa(out_dir):
     return result
 
 
-def _speed_point_x(points, base_density, criterion):
-    xs = np.array([p[0] for p in points])
-    ys = np.array([p[1] for p in points])
-    order = np.argsort(ys)
-    return float(np.interp(base_density + criterion, ys[order], xs[order]))
-
-
 def out_dir(grade):
     return OUT_ROOT / f"ilford_multigrade_iv_rc_{grade}"
 
@@ -285,7 +284,7 @@ def build_grade(grade):
 
     # --- Characteristic curve fit ---------------------------------------------
     base_density = min(y for _, y in points)
-    x_speed = _speed_point_x(points, base_density, criterion=1.0)
+    x_speed = stock_io.paper_speed_point_x(points, base_density)
     shift = -x_speed
 
     xs = np.array([p[0] for p in points]) + shift
@@ -297,11 +296,14 @@ def build_grade(grade):
 
     fit_report = {
         "exposure_anchor": {"grade": grade, "panel": panel_id,
-                             "x_speed_criterion_1.0": x_speed, "applied_shift": shift},
-        "note": "no development_time family -- see module docstring; "
-                "log_sensitivity_density_over_min=1.0 (this project's existing default "
-                "criterion, not a standards citation -- Multigrade's own sheet publishes "
-                "0.5/1.0/1.5, not the ISO 6:1993 0.60 criterion Polymax used)",
+                             "x_speed_criterion_0.6": x_speed, "applied_shift": shift},
+        "note": "no development_time family -- see module docstring; characteristic-curve "
+                "exposure anchor uses stock_io.PAPER_SPEED_CRITERION=0.6 (ISO 6846:1992 / "
+                "ANSI PH2.2-1972 real paper-speed criterion, interpolated from the digitized "
+                "curve directly -- Multigrade's own sheet only tabulates 0.5/1.0/1.5, but the "
+                "full digitized curve isn't limited to those three points). "
+                "log_sensitivity_density_over_min=1.0 is a separate, decoupled choice -- see "
+                "SPECTRAL_DENSITY_CRITERION's own comment.",
         "curves": {
             grade: {
                 "r_squared": fit.r_squared, "max_residual": fit.max_residual,

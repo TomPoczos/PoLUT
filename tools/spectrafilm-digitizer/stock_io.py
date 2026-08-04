@@ -32,6 +32,71 @@ def speed_point_x(points, base_density, criterion=1.0):
     return float(np.interp(base_density + criterion, ys[order], xs[order]))
 
 
+# ISO 6846:1992 / ANSI PH2.2-1972 photographic PRINTING-PAPER speed
+# criterion: density = Dmin + 0.60. A real, standardized speed point
+# specific to paper -- distinct from ISO 6:1993's own, different criterion
+# for camera NEGATIVE FILM (see ansi_speed_ei() below, criterion=0.1, a
+# different standard for a different material class -- don't conflate the
+# two numbers).
+#
+# Found and confirmed necessary 2026-08-04: ilford_multigrade_iv_rc.py
+# originally anchored its characteristic-curve exposure axis at whatever
+# speed criterion Ilford's own datasheet happened to tabulate (1.0, since
+# that sheet only publishes 0.5/1.0/1.5, not 0.6) -- while
+# kodak_polymax_fine_art.py anchored at the real 0.6 criterion because
+# Kodak's own sheet happens to tabulate exactly that point. Confirmed via
+# darktable's spektra_sim.c (a line-for-line port of spektrafilm's own
+# printing.py, "[st]" tagged) that a paper's own log_exposure=0 crossing is
+# NOT incidental: the print stage's geometric-mean midgray ratio
+# normalization (_compute_exposure_factor_midgray / exposure_factor) cancels
+# a paper's absolute log_sensitivity SCALE, but every photographed
+# grey-normalized pixel still lands at exactly log_raw=0 on the PAPER's own
+# density curve -- so wherever that paper's curve was anchored at
+# digitization time is exactly the density a grey subject prints to,
+# regardless of which film is paired with it. Multigrade's 1.0-criterion
+# anchor sat at ~49% up its own density range vs. Polymax's 0.6-criterion
+# anchor at ~26% -- a measured ~0.4 net-density-unit (~1.3 stop) systematic
+# darkening on every Multigrade grade, independent of film, root-caused and
+# confirmed against real darktable renders (Ilford Delta 100 AND Kodak
+# Tri-X, both dark specifically when paired with Multigrade, both normal
+# with Polymax).
+#
+# That the real 0.6 criterion is the right target (not an arbitrary
+# "matches Polymax" choice) is independently confirmed by every real
+# print-paper profile spektrafilm itself ships (not built by this project):
+# kodak_portra_endura, kodak_endura_premier, kodak_ektacolor_edge,
+# fujifilm_crystal_archive_typeii all land within absolute density 0.51-0.66
+# (~23-30% of their own range) at their own log_exposure=0 crossing --
+# tight enough across two manufacturers and four papers to not be
+# coincidence. That band is centered almost exactly on Dmin+0.6.
+#
+# Use paper_speed_point_x() (not a bare speed_point_x() call with a
+# locally-invented criterion) for any new paper product's characteristic-
+# curve exposure anchor, so density_curves lands on the canonical
+# log_exposure grid the same way every other paper in this project (and in
+# spektrafilm's own shipped pack) does. This is about anchor PLACEMENT only
+# -- it's independent of whatever density criterion a paper's own
+# log_sensitivity/log_sensitivity_density_over_min metadata field happens to
+# describe (that field documents which digitized spectral-sensitivity curve
+# was used, if a source chart publishes more than one at different density
+# criteria -- e.g. Multigrade's 0.5/1.0/1.5 curves -- and doesn't need to
+# match this anchor criterion, since a paper's absolute log_sensitivity
+# scale cancels out of the render regardless of its value; see this
+# constant's own explanation above for why that's a materially different
+# question from where the density curve itself is anchored).
+PAPER_SPEED_CRITERION = 0.6
+
+
+def paper_speed_point_x(points, base_density, criterion=PAPER_SPEED_CRITERION):
+    """speed_point_x() specialized to printing paper's real ISO 6846 speed
+    criterion -- see PAPER_SPEED_CRITERION's own comment for the mechanism
+    this exists to get right (where a paper's digitized curve sits on the
+    canonical log_exposure grid, which directly determines what density a
+    grey-normalized photographed subject prints to, regardless of which
+    film is paired with the paper)."""
+    return speed_point_x(points, base_density, criterion=criterion)
+
+
 def ansi_speed_ei(points, base_density, criterion=0.1, k=0.8):
     """Simplified ANSI/ISO black-and-white negative film speed: EI = k / Hm,
     Hm = the real exposure in lux-seconds (10**log_exposure, so `points`

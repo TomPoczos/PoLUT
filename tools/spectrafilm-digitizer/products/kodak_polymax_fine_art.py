@@ -64,10 +64,14 @@ Two things that don't vary per grade:
    This datasheet's own three density criteria are D-min+0.3/+0.6/+1.6,
    none of which is the film convention's usual 1.0. Rather than force a
    mismatch, every grade declares log_sensitivity_density_over_min=0.6 and
-   digitizes that curve specifically -- 0.6 is also the real ISO 6:1993
-   standard paper-speed criterion (density 0.60 above base+fog), so it's
-   the historically-correct choice for a print paper's own speed point, not
-   just "the closest available option." reference_illuminant is TH-KG3 (a
+   digitizes that curve specifically -- 0.6 is also the real ISO 6846:1992/
+   ANSI PH2.2-1972 standard PAPER-speed criterion (density 0.60 above
+   base+fog; NOT ISO 6:1993, which is the different standard for camera
+   negative FILM speed -- see stock_io.PAPER_SPEED_CRITERION's own comment),
+   so it's the historically-correct choice for a print paper's own speed
+   point, not just "the closest available option," and is also the same
+   criterion this paper's own characteristic-curve exposure anchor now uses
+   via stock_io.paper_speed_point_x(). reference_illuminant is TH-KG3 (a
    tungsten-halogen enlarger lamp SPD, the same convention every real paper
    profile in the pack already uses), not D55 -- paper is exposed by the
    enlarger, not daylight.
@@ -102,6 +106,7 @@ import numpy as np
 import canonical_grids as grids
 import density_model as dm
 import spektra_profile as sp
+import stock_io
 from digitizer_core import (
     ChartSpec, CurveSpec, digitize_chart, render_qa_overlay,
 )
@@ -402,13 +407,6 @@ def _write_spectral_sensitivity_raw_and_qa(out_dir):
     return spec_result
 
 
-def _speed_point_x(points, base_density, criterion):
-    xs = np.array([p[0] for p in points])
-    ys = np.array([p[1] for p in points])
-    order = np.argsort(ys)
-    return float(np.interp(base_density + criterion, ys[order], xs[order]))
-
-
 def out_dir(grade):
     return OUT_ROOT / f"kodak_polymax_fine_art_{grade}"
 
@@ -429,7 +427,7 @@ def build_grade(grade):
 
     # --- Characteristic curve fit ---------------------------------------------
     base_density = min(y for _, y in points)
-    x_speed = _speed_point_x(points, base_density, criterion=0.6)
+    x_speed = stock_io.paper_speed_point_x(points, base_density)
     shift = -x_speed
 
     xs = np.array([p[0] for p in points]) + shift
@@ -443,7 +441,9 @@ def build_grade(grade):
         "exposure_anchor": {"grade": grade, "panel": panel_id,
                              "x_speed_kodak_chart": x_speed, "applied_shift": shift},
         "note": "no development_time family -- see module docstring; density_over_min=0.6 "
-                "(ISO 6:1993 paper speed criterion), not the 1.0 film convention",
+                "(ISO 6846:1992/ANSI PH2.2-1972 real paper speed criterion, via "
+                "stock_io.PAPER_SPEED_CRITERION -- not the 1.0 film convention, and not "
+                "ISO 6:1993, which is the different standard for camera negative film speed)",
         "curves": {
             grade: {
                 "r_squared": fit.r_squared, "max_residual": fit.max_residual,

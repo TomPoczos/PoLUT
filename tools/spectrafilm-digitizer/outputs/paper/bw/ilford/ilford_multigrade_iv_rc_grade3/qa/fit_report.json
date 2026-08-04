@@ -2,29 +2,29 @@
   "exposure_anchor": {
     "grade": "grade3",
     "panel": "characteristic_curve_grades_00_to_3",
-    "x_speed_criterion_1.0": 2.524598712446352,
-    "applied_shift": -2.524598712446352
+    "x_speed_criterion_0.6": 2.362880303030303,
+    "applied_shift": -2.362880303030303
   },
-  "note": "no development_time family -- see module docstring; log_sensitivity_density_over_min=1.0 (this project's existing default criterion, not a standards citation -- Multigrade's own sheet publishes 0.5/1.0/1.5, not the ISO 6:1993 0.60 criterion Polymax used)",
+  "note": "no development_time family -- see module docstring; characteristic-curve exposure anchor uses stock_io.PAPER_SPEED_CRITERION=0.6 (ISO 6846:1992 / ANSI PH2.2-1972 real paper-speed criterion, interpolated from the digitized curve directly -- Multigrade's own sheet only tabulates 0.5/1.0/1.5, but the full digitized curve isn't limited to those three points). log_sensitivity_density_over_min=1.0 is a separate, decoupled choice -- see SPECTRAL_DENSITY_CRITERION's own comment.",
   "curves": {
     "grade3": {
-      "r_squared": 0.9999906821007195,
-      "max_residual": 0.009589776295690466,
+      "r_squared": 0.999990682100719,
+      "max_residual": 0.009589775922097754,
       "base_density": 0.0143,
       "centers": [
-        0.40787995909588004,
-        0.08510753423076317,
-        -0.3163298306999287
+        0.569599306049487,
+        0.24682595143785524,
+        -0.15461176812735034
       ],
       "amplitudes": [
-        0.06977141389904751,
-        1.25274580646155,
-        0.7067017777424925
+        0.06977058993722818,
+        1.2527476449110084,
+        0.7067007482199902
       ],
       "sigmas": [
-        0.09088104570839903,
-        0.13243644917088307,
-        0.19016358539512873
+        0.09087995727866532,
+        0.13243661828186698,
+        0.1901634191297226
       ]
     }
   }
