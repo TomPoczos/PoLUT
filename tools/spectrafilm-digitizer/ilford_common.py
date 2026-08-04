@@ -445,11 +445,6 @@ def build_single_stock_bw_negative(
 
     fit = dm.fit_norm_cdfs(xs, ys_net, n_layers=n_layers)
     print(f"  {stock}: R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
-    qa_dir = out_root / "qa"
-    qa_dir.mkdir(parents=True, exist_ok=True)
-    dm.plot_fit_qa(xs, ys_net, fit, grids.LOG_EXPOSURE,
-                   title=f"{name} (net density, above base)",
-                   out_path=qa_dir / "density_fit.png")
 
     return stock_io.write_single_dev_time_stock(
         out_root=out_root, stock=stock, name=name, target_print=target_print,

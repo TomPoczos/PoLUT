@@ -80,7 +80,6 @@ from pathlib import Path
 import numpy as np
 
 import canonical_grids as grids
-import density_model as dm
 import exposure_calibration as ec
 import trix_common as tc
 from digitizer_core import ChartSpec, CurveSpec, digitize_chart
@@ -194,7 +193,7 @@ def _spectral_sensitivity_chart():
     return chart
 
 
-def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir):
+def _fit_bracket(curves_by_dev, dev_times, rep_idx, label):
     """Same shape as kodak_trix400tx.py's own _fit_bracket -- see that
     module's docstring for the process this mirrors."""
     rep_dev = dev_times[rep_idx]
@@ -203,16 +202,60 @@ def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir):
     x_speed_rep = tc.speed_point_x(rep_points, rep_base, criterion=1.0)
     shift = -x_speed_rep
 
-    qa_dir.mkdir(parents=True, exist_ok=True)
-    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+    fits = tc.fit_dev_times_parallel(
         curves_by_dev, dev_times, shift, N_LAYERS, label,
     )
-    for dev_t in dev_times:
-        fit, _ = fits[dev_t]
-        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
-                        title=f"Kodak T-Max 100, {label} {dev_t:g} min (net density, above base)",
-                        out_path=qa_dir / f"density_fit_{label.lower().replace('-', '').replace(' ', '')}_{dev_t:g}min.png")
     return fits, shift, rep_dev
+
+
+def _run_bracket(chart_fn, dev_times, rep_idx, label, subdir, dev_key_names, log_sensitivity):
+    """Digitizes + fits + writes ONE developer bracket's stocks. build_all()
+    below calls this once per _BRACKETS entry, sequentially -- see that
+    list's own comment for why (fanning these out concurrently was tried
+    and measured worse; the fix for the real bottleneck is
+    fit_dev_times_parallel's own global semaphore, not concurrency here)."""
+    chart = chart_fn()
+    result = digitize_chart(chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, chart, result, OUT_ROOT / subdir)
+    # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
+    # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
+    # real data, not the RDP-reduced QA/compactness set.
+    curves_by_dev = {float(name.replace("min", "")): result["curves"][name]["points_dense"]
+                      for name in dev_key_names}
+    fits, shift, rep_dev = _fit_bracket(curves_by_dev, dev_times, rep_idx, label)
+    written = {}
+    for dev_t in dev_times:
+        fit, base_density = fits[dev_t]
+        stock = f"kodak_tmax100_{subdir.split('_')[-1]}_{tc.fmt_time_slug(dev_t)}"
+        name = f"{FILM_NAME_PREFIX} — {label} {tc.fmt_time(dev_t)}"
+        source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
+            out_root=OUT_ROOT / subdir, stock=stock, name=name,
+            target_print=TARGET_PRINT, densitometer="diffuse_visual",
+            log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
+            viewing_illuminant="D50", datasource=DATASOURCE,
+            wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
+            log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
+            fit=fit, dev_time_min=dev_t,
+        )
+        print(f"  wrote {stock}: {name}  -> {out_dir}")
+        written[stock] = (source_profile, pack_profile)
+    return written
+
+
+# Each entry: (chart_fn, dev_times, rep_idx, label, subdir, dev_key_names).
+# build_all() below calls _run_bracket once per entry, sequentially --
+# fanning these out concurrently was tried and measured WORSE for overall
+# wall-clock (see trix_common.py's FIT_SEMAPHORE comment for the full
+# history); the fix for the actual measured bottleneck lives in
+# fit_dev_times_parallel's own global semaphore now, not at this level.
+_BRACKETS = [
+    (_d76_chart, D76_DEV_TIMES, D76_REP_IDX, "D-76",
+     "small_tank_d76", ["6min", "7.5min", "10min"]),
+    (_tmaxrs_chart, TMAXRS_DEV_TIMES, TMAXRS_REP_IDX, "T-MAX RS",
+     "large_tank_tmaxrs", ["8min", "10.5min", "13min", "15min"]),
+    (_tmax_chart, TMAX_DEV_TIMES, TMAX_REP_IDX, "T-MAX",
+     "small_tank_tmax", ["6min", "7min", "10min", "12min"]),
+]
 
 
 def build_all():
@@ -244,41 +287,9 @@ def build_all():
           f"to reach target {ec.GREY_TARGET_LOG_RAW}")
 
     written = {}
-
-    def _run_bracket(chart_fn, dev_times, rep_idx, label, subdir, dev_key_names):
-        chart = chart_fn()
-        result = digitize_chart(chart, PDF_PATH)
-        tc.write_raw_and_qa(PDF_PATH, chart, result, OUT_ROOT / subdir)
-        # points_dense, not points -- see SIMPLIFY_TOLERANCE's comment in
-        # digitizer_core.py: fitting/interpolation draws from the fullest-fidelity
-        # real data, not the RDP-reduced QA/compactness set.
-        curves_by_dev = {float(name.replace("min", "")): result["curves"][name]["points_dense"]
-                          for name in dev_key_names}
-        fits, shift, rep_dev = _fit_bracket(curves_by_dev, dev_times, rep_idx, label,
-                                             OUT_ROOT / subdir / "qa")
-        for dev_t in dev_times:
-            fit, base_density = fits[dev_t]
-            stock = f"kodak_tmax100_{subdir.split('_')[-1]}_{tc.fmt_time_slug(dev_t)}"
-            name = f"{FILM_NAME_PREFIX} — {label} {tc.fmt_time(dev_t)}"
-            source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
-                out_root=OUT_ROOT / subdir, stock=stock, name=name,
-                target_print=TARGET_PRINT, densitometer="diffuse_visual",
-                log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
-                viewing_illuminant="D50", datasource=DATASOURCE,
-                wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
-                log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
-                fit=fit, dev_time_min=dev_t,
-            )
-            print(f"  wrote {stock}: {name}  -> {out_dir}")
-            written[stock] = (source_profile, pack_profile)
-
-    _run_bracket(_d76_chart, D76_DEV_TIMES, D76_REP_IDX, "D-76",
-                 "small_tank_d76", ["6min", "7.5min", "10min"])
-    _run_bracket(_tmaxrs_chart, TMAXRS_DEV_TIMES, TMAXRS_REP_IDX, "T-MAX RS",
-                 "large_tank_tmaxrs", ["8min", "10.5min", "13min", "15min"])
-    _run_bracket(_tmax_chart, TMAX_DEV_TIMES, TMAX_REP_IDX, "T-MAX",
-                 "small_tank_tmax", ["6min", "7min", "10min", "12min"])
-
+    for chart_fn, dev_times, rep_idx, label, subdir, dev_key_names in _BRACKETS:
+        written.update(_run_bracket(chart_fn, dev_times, rep_idx, label, subdir, dev_key_names,
+                                     log_sensitivity))
     return written
 
 

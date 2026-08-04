@@ -50,21 +50,71 @@ from stock_io import ansi_speed_ei, speed_point_x, write_raw_and_qa, write_singl
 NORMAL_CI_TARGET = 0.56
 NORMAL_CI_TOLERANCE = 0.01
 
-# Per-process worker budget for this module's OWN inner ProcessPoolExecutor,
-# set by main.py (before it forks its own, outer per-product-family pool --
-# see that module's docstring) to whatever's left of os.cpu_count() once the
-# outer pool's own concurrency is accounted for, so the two pooling layers
-# can never together oversubscribe the machine. `None` (the default, e.g.
-# when a product's own `if __name__ == "__main__": build_all()` block runs
-# this file standalone, outside main.py's dispatch) means "no outer pool
-# exists to share the budget with" -- fall back to the old os.cpu_count()
+# Global, hard-capped semaphore -- set by main.py (before it forks its own
+# outer per-product-family pool -- see that module's docstring) to
+# multiprocessing.Semaphore(cpu_count), shared by literal reference across
+# every outer worker, every bracket, and every individual per-dev-time fit
+# process this whole run spawns, at any nesting depth. `None` (the default,
+# e.g. when a product's own `if __name__ == "__main__": build_all()` block
+# runs this file standalone, outside main.py's dispatch) means "no cap
+# exists to share" -- fall back to the old os.cpu_count() local-only
 # behavior in fit_dev_times_parallel below.
-INNER_WORKERS = None
+#
+# History: this used to be a plain int (INNER_WORKERS) computed once as
+# cpu_count // len(jobs) before the outer pool was created, then a live
+# multiprocessing.Value + Lock "budget" that callers borrowed from and gave
+# back (INNER_BUDGET). Both were replaced (2026-08-04) after two real,
+# measured failures:
+#   1. A static split badly undersized every inner pool for the WHOLE run
+#      just because len(jobs) happened to sit close to cpu_count, and
+#      never adapted as sibling jobs of wildly different duration finished
+#      -- confirmed directly: the last ~150s of a ~225s full build had only
+#      2 of 11 outer jobs left, each still capped at budget=1, 10 of 12
+#      cores idle the whole time.
+#   2. The live Value+Lock version fixed #1, but its "floor of 1 no matter
+#      how negative the counter already is" rule meant EVERY concurrent
+#      claimant always got at least 1 worker regardless of true
+#      availability -- fine with a handful of claimants, but the claimant
+#      count is exactly "how many fit_dev_times_parallel calls happen to be
+#      in flight at once," which grows every time a new multi-bracket film
+#      or paper is added to this project. Nothing capped the TOTAL number
+#      of simultaneously-running fit processes at cpu_count; it only capped
+#      each individual claim's own size, so aggregate oversubscription (and
+#      the wall-clock cost of the extra context-switching that comes with
+#      it) would have kept getting worse as the catalog grows, not just
+#      stayed at today's already-nonideal level. Trying to fix this by
+#      fanning brackets out concurrently (so each claims a smaller slice at
+#      once instead of taking turns) was tried and measured WORSE, not
+#      better (162s vs. 149s for the live-budget-only baseline, on the same
+#      catalog) -- more concurrent claimants against the same
+#      floor-always-wins mechanism just means more, thinner, more
+#      overhead-laden slices, not more real throughput.
+#
+# A real semaphore, acquired once per INDIVIDUAL fit task (inside _fit_one,
+# which runs in the actual worker process, not by the caller sizing its own
+# pool) rather than once per CALLER, fixes both: it's a hard physical limit
+# on how many fits can be EXECUTING at once, GLOBALLY, full stop -- doesn't
+# matter whether that's 5 callers or 50 as this project's catalog grows,
+# peak concurrent CPU-bound work never exceeds cpu_count, because the OS
+# itself won't hand out more than cpu_count semaphore permits at a time. A
+# ProcessPoolExecutor can still be created with more workers than permits
+# exist (harmless -- the extra worker processes just sit blocked on
+# acquire(), consuming ~0 CPU while waiting, not competing for cores), so
+# there's no need for any caller-side bookkeeping, borrowing, or giving
+# back at all.
+FIT_SEMAPHORE = None
 
 
 def _fit_one(dev_t, xs, ys, n_layers):
     """Module-level (picklable) worker for ProcessPoolExecutor -- must stay
-    top-level, not a closure/lambda, or it can't cross the process boundary."""
+    top-level, not a closure/lambda, or it can't cross the process boundary.
+    Acquires FIT_SEMAPHORE around the actual CPU-bound work (not around
+    anything in the calling process) so the hard cap applies to work
+    genuinely being computed right now, not to how many worker processes
+    happen to exist."""
+    if FIT_SEMAPHORE is not None:
+        with FIT_SEMAPHORE:
+            return dev_t, dm.fit_norm_cdfs(xs, ys, n_layers=n_layers)
     return dev_t, dm.fit_norm_cdfs(xs, ys, n_layers=n_layers)
 
 
@@ -78,16 +128,16 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
     found 8 threads SLOWER than sequential but ProcessPoolExecutor a real
     ~3.8x speedup on the same CPU-bound workload).
 
-    Worker count is capped by module-global INNER_WORKERS when set (main.py's
-    outer per-product-family pool sizes this to its own remaining CPU budget
-    before dispatch -- see that global's own comment), else by plain
-    os.cpu_count() for standalone/interactive use.
+    Pool size here is just a local cap on how many OS processes THIS call
+    spins up (never more than it has dev_times for, never more than
+    os.cpu_count() since more than that can never all be usefully active at
+    once even project-wide) -- it does NOT need to coordinate with sibling
+    calls the way the old INNER_BUDGET did, because FIT_SEMAPHORE (see that
+    global's own comment) enforces the real, global, project-wide cap at
+    the point each individual fit actually runs, not here.
 
     Returns {dev_t: (fit, base_density)}, same shape _fit_bracket's callers
-    already expect -- QA plotting stays in the calling (main) process
-    afterward, not inside the worker, since matplotlib figure rendering
-    across a process pool is extra complexity for a step that isn't the
-    actual bottleneck here."""
+    already expect."""
     base_densities = {}
     xs_by_dev = {}
     ys_by_dev = {}
@@ -100,8 +150,8 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
         xs_by_dev[dev_t] = xs
         ys_by_dev[dev_t] = ys_absolute - base_density
 
-    budget = INNER_WORKERS if INNER_WORKERS is not None else (os.cpu_count() or 4)
-    workers = min(len(dev_times), max(1, budget))
+    workers = min(len(dev_times), max(1, os.cpu_count() or 4))
+
     fits = {}
     with ProcessPoolExecutor(max_workers=workers) as ex:
         futures = [ex.submit(_fit_one, dev_t, xs_by_dev[dev_t], ys_by_dev[dev_t], n_layers)
@@ -111,7 +161,7 @@ def fit_dev_times_parallel(curves_by_dev, dev_times, shift, n_layers, label):
             fits[dev_t] = fit
             print(f"  {label} {dev_t:g} min: R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
 
-    return {dev_t: (fits[dev_t], base_densities[dev_t]) for dev_t in dev_times}, xs_by_dev, ys_by_dev
+    return {dev_t: (fits[dev_t], base_densities[dev_t]) for dev_t in dev_times}
 
 
 def real_ci_at(ci_curve_points, dev_time_min):

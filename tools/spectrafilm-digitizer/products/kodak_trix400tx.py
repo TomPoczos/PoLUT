@@ -63,7 +63,6 @@ from pathlib import Path
 import numpy as np
 
 import canonical_grids as grids
-import density_model as dm
 import exposure_calibration as ec
 import trix_common as tc
 from digitizer_core import ChartSpec, CurveSpec, digitize_chart
@@ -183,31 +182,103 @@ def _spectral_sensitivity_chart():
     return chart
 
 
-def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir):
+def _fit_bracket(curves_by_dev, dev_times, rep_idx, label):
     """Anchors + fits one Characteristic-Curve bracket (a set of curves from
     ONE panel/developer) -- one scipy.optimize.curve_fit call per
     development time, in its own OS process (tc.fit_dev_times_parallel(),
     see its own docstring for why processes not threads). Returns
-    {dev_t: (fit, base_density)} plus the applied shift. Writes a
-    density_fit_<label>_<t>min.png per development time (fit-vs-digitized-
-    points QA, not just the raw curve-vs-source-chart QA already written by
-    write_raw_and_qa) -- plotting stays sequential in the main process."""
+    {dev_t: (fit, base_density)} plus the applied shift."""
     rep_dev = dev_times[rep_idx]
     rep_points = curves_by_dev[rep_dev]
     rep_base = min(y for _, y in rep_points)
     x_speed_rep = tc.speed_point_x(rep_points, rep_base, criterion=1.0)
     shift = -x_speed_rep
 
-    qa_dir.mkdir(parents=True, exist_ok=True)
-    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+    fits = tc.fit_dev_times_parallel(
         curves_by_dev, dev_times, shift, N_LAYERS, label,
     )
-    for dev_t in dev_times:
-        fit, _ = fits[dev_t]
-        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
-                        title=f"Kodak Tri-X 400 (TX), {label} {dev_t:g} min (net density, above base)",
-                        out_path=qa_dir / f"density_fit_{label.lower().replace('-', '')}_{dev_t:g}min.png")
     return fits, shift, rep_dev
+
+
+def _build_d76_bracket(log_sensitivity):
+    """D-76 large tank bracket -- kept as its own function (alongside
+    _build_tmax_bracket below) purely for readability; build_all() calls
+    both sequentially. Fanning these out concurrently was tried and
+    measured WORSE for overall wall-clock (see trix_common.py's
+    FIT_SEMAPHORE comment for the full history) -- the two brackets ARE
+    fully independent (no shared mutable state beyond the read-only
+    log_sensitivity array) but the fix for the actual measured bottleneck
+    lives in fit_dev_times_parallel's own global semaphore now, not here."""
+    d76_chart = _d76_chart()
+    d76_result = digitize_chart(d76_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, d76_chart, d76_result, OUT_ROOT / "large_tank_d76")
+    # points_dense throughout this file, not points -- see SIMPLIFY_TOLERANCE's
+    # comment in digitizer_core.py: fitting/interpolation should draw from the
+    # fullest-fidelity real data available, not the RDP-reduced QA/compactness set.
+    d76_curves = {float(t.replace("min", "")): d76_result["curves"][t]["points_dense"]
+                  for t in ("7min", "9min", "11min")}
+    d76_fits, d76_shift, d76_rep = _fit_bracket(d76_curves, D76_DEV_TIMES, D76_REP_IDX, "D-76")
+
+    d76_ci_chart = _d76_ci_chart()
+    d76_ci_result = digitize_chart(d76_ci_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, d76_ci_chart, d76_ci_result, OUT_ROOT / "large_tank_d76")
+    d76_ci_points = d76_ci_result["curves"]["D-76"]["points_dense"]
+
+    written = {}
+    for dev_t in D76_DEV_TIMES:
+        fit, base_density = d76_fits[dev_t]
+        real_ci = tc.real_ci_at(d76_ci_points, dev_t)
+        stock = f"kodak_trix400tx_d76_{tc.fmt_time_slug(dev_t)}"
+        name = f"{FILM_NAME_PREFIX} — D-76 {tc.fmt_time(dev_t)}, {tc.ci_label(real_ci)}"
+        source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
+            out_root=OUT_ROOT / "large_tank_d76", stock=stock, name=name,
+            target_print=TARGET_PRINT, densitometer="diffuse_visual",
+            log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
+            viewing_illuminant="D50", datasource=DATASOURCE,
+            wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
+            log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
+            fit=fit, dev_time_min=dev_t,
+        )
+        print(f"  wrote {stock}: {name}  -> {out_dir}")
+        written[stock] = (source_profile, pack_profile)
+    return written
+
+
+def _build_tmax_bracket(log_sensitivity):
+    """T-MAX small tank bracket -- see _build_d76_bracket's own docstring."""
+    tmax_chart = _tmax_chart()
+    tmax_result = digitize_chart(tmax_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, tmax_chart, tmax_result, OUT_ROOT / "small_tank_tmax")
+    tmax_curves = {float(t.replace("min", "")): tmax_result["curves"][t]["points_dense"]
+                   for t in ("5min", "7min", "9min", "11min")}
+    tmax_fits, tmax_shift, tmax_rep = _fit_bracket(tmax_curves, TMAX_DEV_TIMES, TMAX_REP_IDX, "T-MAX")
+
+    tmax_ci_chart = _tmax_ci_chart()
+    tmax_ci_result = digitize_chart(tmax_ci_chart, PDF_PATH)
+    tc.write_raw_and_qa(PDF_PATH, tmax_ci_chart, tmax_ci_result, OUT_ROOT / "small_tank_tmax")
+    tmax_ci_points = tmax_ci_result["curves"]["T-MAX"]["points_dense"]
+
+    written = {}
+    for dev_t in TMAX_DEV_TIMES:
+        fit, base_density = tmax_fits[dev_t]
+        real_ci = tc.real_ci_at(tmax_ci_points, dev_t)
+        stock = f"kodak_trix400tx_tmax_{tc.fmt_time_slug(dev_t)}"
+        name = f"{FILM_NAME_PREFIX} small tank — T-MAX {tc.fmt_time(dev_t)}, {tc.ci_label(real_ci)}"
+        source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
+            out_root=OUT_ROOT / "small_tank_tmax", stock=stock, name=name,
+            target_print=TARGET_PRINT, densitometer="diffuse_visual",
+            log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
+            viewing_illuminant="D50", datasource=DATASOURCE,
+            wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
+            log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
+            fit=fit, dev_time_min=dev_t,
+        )
+        print(f"  wrote {stock}: {name}  -> {out_dir}")
+        written[stock] = (source_profile, pack_profile)
+    return written
+
+
+_BRACKET_BUILDERS = [_build_d76_bracket, _build_tmax_bracket]
 
 
 def build_all():
@@ -238,72 +309,8 @@ def build_all():
           f"to reach target {ec.GREY_TARGET_LOG_RAW}")
 
     written = {}
-
-    # --- D-76 large tank bracket ---------------------------------------------
-    d76_chart = _d76_chart()
-    d76_result = digitize_chart(d76_chart, PDF_PATH)
-    tc.write_raw_and_qa(PDF_PATH, d76_chart, d76_result, OUT_ROOT / "large_tank_d76")
-    # points_dense throughout this file, not points -- see SIMPLIFY_TOLERANCE's
-    # comment in digitizer_core.py: fitting/interpolation should draw from the
-    # fullest-fidelity real data available, not the RDP-reduced QA/compactness set.
-    d76_curves = {float(t.replace("min", "")): d76_result["curves"][t]["points_dense"]
-                  for t in ("7min", "9min", "11min")}
-    d76_fits, d76_shift, d76_rep = _fit_bracket(d76_curves, D76_DEV_TIMES, D76_REP_IDX, "D-76",
-                                                 OUT_ROOT / "large_tank_d76" / "qa")
-
-    d76_ci_chart = _d76_ci_chart()
-    d76_ci_result = digitize_chart(d76_ci_chart, PDF_PATH)
-    tc.write_raw_and_qa(PDF_PATH, d76_ci_chart, d76_ci_result, OUT_ROOT / "large_tank_d76")
-    d76_ci_points = d76_ci_result["curves"]["D-76"]["points_dense"]
-
-    for dev_t in D76_DEV_TIMES:
-        fit, base_density = d76_fits[dev_t]
-        real_ci = tc.real_ci_at(d76_ci_points, dev_t)
-        stock = f"kodak_trix400tx_d76_{tc.fmt_time_slug(dev_t)}"
-        name = f"{FILM_NAME_PREFIX} — D-76 {tc.fmt_time(dev_t)}, {tc.ci_label(real_ci)}"
-        source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
-            out_root=OUT_ROOT / "large_tank_d76", stock=stock, name=name,
-            target_print=TARGET_PRINT, densitometer="diffuse_visual",
-            log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
-            viewing_illuminant="D50", datasource=DATASOURCE,
-            wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
-            log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
-            fit=fit, dev_time_min=dev_t,
-        )
-        print(f"  wrote {stock}: {name}  -> {out_dir}")
-        written[stock] = (source_profile, pack_profile)
-
-    # --- T-MAX small tank bracket ---------------------------------------------
-    tmax_chart = _tmax_chart()
-    tmax_result = digitize_chart(tmax_chart, PDF_PATH)
-    tc.write_raw_and_qa(PDF_PATH, tmax_chart, tmax_result, OUT_ROOT / "small_tank_tmax")
-    tmax_curves = {float(t.replace("min", "")): tmax_result["curves"][t]["points_dense"]
-                   for t in ("5min", "7min", "9min", "11min")}
-    tmax_fits, tmax_shift, tmax_rep = _fit_bracket(tmax_curves, TMAX_DEV_TIMES, TMAX_REP_IDX, "T-MAX",
-                                                    OUT_ROOT / "small_tank_tmax" / "qa")
-
-    tmax_ci_chart = _tmax_ci_chart()
-    tmax_ci_result = digitize_chart(tmax_ci_chart, PDF_PATH)
-    tc.write_raw_and_qa(PDF_PATH, tmax_ci_chart, tmax_ci_result, OUT_ROOT / "small_tank_tmax")
-    tmax_ci_points = tmax_ci_result["curves"]["T-MAX"]["points_dense"]
-
-    for dev_t in TMAX_DEV_TIMES:
-        fit, base_density = tmax_fits[dev_t]
-        real_ci = tc.real_ci_at(tmax_ci_points, dev_t)
-        stock = f"kodak_trix400tx_tmax_{tc.fmt_time_slug(dev_t)}"
-        name = f"{FILM_NAME_PREFIX} small tank — T-MAX {tc.fmt_time(dev_t)}, {tc.ci_label(real_ci)}"
-        source_profile, pack_profile, out_dir = tc.write_single_dev_time_stock(
-            out_root=OUT_ROOT / "small_tank_tmax", stock=stock, name=name,
-            target_print=TARGET_PRINT, densitometer="diffuse_visual",
-            log_sensitivity_density_over_min=1.0, reference_illuminant="D55",
-            viewing_illuminant="D50", datasource=DATASOURCE,
-            wavelengths=grids.WAVELENGTHS_NM, log_sensitivity=log_sensitivity,
-            log_exposure=grids.LOG_EXPOSURE, base_density_scalar=base_density,
-            fit=fit, dev_time_min=dev_t,
-        )
-        print(f"  wrote {stock}: {name}  -> {out_dir}")
-        written[stock] = (source_profile, pack_profile)
-
+    for builder in _BRACKET_BUILDERS:
+        written.update(builder(log_sensitivity))
     return written
 
 

@@ -156,7 +156,6 @@ from pathlib import Path
 import numpy as np
 
 import canonical_grids as grids
-import density_model as dm
 import exposure_calibration as ec
 import trix_common as tc
 from digitizer_core import ChartSpec, CurveSpec, digitize_chart
@@ -268,22 +267,16 @@ def _spectral_sensitivity_chart():
     return chart
 
 
-def _fit_bracket(curves_by_dev, dev_times, rep_idx, label, qa_dir, title_prefix):
+def _fit_bracket(curves_by_dev, dev_times, rep_idx, label):
     rep_dev = dev_times[rep_idx]
     rep_points = curves_by_dev[rep_dev]
     rep_base = min(y for _, y in rep_points)
     x_speed_rep = tc.speed_point_x(rep_points, rep_base, criterion=1.0)
     shift = -x_speed_rep
 
-    qa_dir.mkdir(parents=True, exist_ok=True)
-    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+    fits = tc.fit_dev_times_parallel(
         curves_by_dev, dev_times, shift, N_LAYERS, label,
     )
-    for dev_t in dev_times:
-        fit, _ = fits[dev_t]
-        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
-                        title=f"{title_prefix} (net density, above base)",
-                        out_path=qa_dir / f"density_fit_{label.lower().replace(' ', '')}_{dev_t:g}.png")
     return fits
 
 
@@ -331,8 +324,7 @@ def _build_technidol(log_sensitivity):
         print(f"  Technidol {dev_t:g}min EI cross-check: measured={ei_measured:.1f} "
               f"published={TECHNIDOL_EI_TABLE[dev_t]}{flag}")
 
-    fits = _fit_bracket(curves_by_dev, TECHNIDOL_DEV_TIMES, TECHNIDOL_REP_IDX, "Technidol",
-                         TECHNIDOL_OUT / "qa", "Kodak Technical Pan, Technidol")
+    fits = _fit_bracket(curves_by_dev, TECHNIDOL_DEV_TIMES, TECHNIDOL_REP_IDX, "Technidol")
 
     written = {}
     for dev_t in TECHNIDOL_DEV_TIMES:
@@ -386,8 +378,7 @@ def _build_hc110b(log_sensitivity):
         ci_pos=(421.4, 123.3), ei_pos=(421.3, 136.0),
     )
 
-    fits = _fit_bracket(curves_by_dev, HC110B_DEV_TIMES, HC110B_REP_IDX, "HC-110B",
-                         HC110B_OUT / "qa", "Kodak Technical Pan, HC-110 Dil B")
+    fits = _fit_bracket(curves_by_dev, HC110B_DEV_TIMES, HC110B_REP_IDX, "HC-110B")
 
     written = {}
     for dev_t in HC110B_DEV_TIMES:

@@ -43,7 +43,6 @@ from pathlib import Path
 import numpy as np
 
 import canonical_grids as grids
-import density_model as dm
 import exposure_calibration as ec
 import trix_common as tc
 from digitizer_core import ChartSpec, CurveSpec, digitize_chart
@@ -168,16 +167,9 @@ def build_all():
     x_speed_rep = tc.speed_point_x(rep_points, rep_base, criterion=1.0)
     shift = -x_speed_rep
 
-    qa_dir = OUT_ROOT / "qa"
-    qa_dir.mkdir(parents=True, exist_ok=True)
-    fits, xs_by_dev, ys_by_dev = tc.fit_dev_times_parallel(
+    fits = tc.fit_dev_times_parallel(
         curves_by_dev, DEV_TIMES, shift, N_LAYERS, "HC-110",
     )
-    for dev_t in DEV_TIMES:
-        fit, _ = fits[dev_t]
-        dm.plot_fit_qa(xs_by_dev[dev_t], ys_by_dev[dev_t], fit, grids.LOG_EXPOSURE,
-                        title=f"Kodak Tri-X Pan Professional sheet (TXT), HC-110B {dev_t:g} min (net density, above base)",
-                        out_path=qa_dir / f"density_fit_hc110b_{dev_t:g}min.png")
 
     ci_chart = _ci_chart()
     ci_result = digitize_chart(ci_chart, PDF_PATH)

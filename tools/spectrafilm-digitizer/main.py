@@ -32,15 +32,19 @@ single core throughout, with other cores spiking only briefly during a family's 
 ProcessPoolExecutor call (trix_common.fit_dev_times_parallel) -- i.e. the family-module
 loop itself, not any single product's own fitting step, was the real bottleneck.
 
-trix_common.INNER_WORKERS is sized here (before the outer pool is created, so it's
-inherited by every forked worker -- see that global's own comment) to whatever's left of
-os.cpu_count() once the outer pool's own per-job share is accounted for, so the two
-parallelism layers (this module's outer per-family pool, and fit_dev_times_parallel's own
-inner per-development-time pool inside 5 of these families) can never together run more
-OS processes than there are cores, not just each individually staying under the cap.
+trix_common.FIT_SEMAPHORE is a multiprocessing.Semaphore(cpu_count) (not a plain int computed
+once, and not a live Value+Lock "budget" either -- see that global's own comment for the full
+history of both predecessors and why each was replaced) shared by literal reference across
+the outer pool, every inner per-development-time fit process, and this main process. Unlike
+either predecessor, this is a hard, physically-enforced cap on how many individual fits can
+be EXECUTING at once, project-wide, acquired once per fit (inside fit_dev_times_parallel's
+own worker) rather than sized by whichever caller happens to be asking -- so it stays
+correctly bounded at cpu_count no matter how many product families this project grows to,
+without any caller-side bookkeeping needed.
 """
 
 import argparse
+import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
@@ -100,7 +104,7 @@ SINGLE_STOCK_MODULES = [ilford_hp5plus, ilford_delta100, ilford_fp4plus, ilford_
 # reduction, unlike classes/functions), so a submitted job can't just close
 # over one -- pass its name instead and look it up here. Fork-based
 # ProcessPoolExecutor (the Linux default this project relies on already,
-# see trix_common.INNER_WORKERS) hands each worker a copy-on-write snapshot
+# see trix_common.FIT_SEMAPHORE) hands each worker a copy-on-write snapshot
 # of this dict as it stands at fork time, which is after main() has already
 # imported everything above, so every worker's lookup always hits.
 _FAMILY_BY_NAME = {m.__name__: m for m in FAMILY_MODULES}
@@ -111,7 +115,22 @@ def _build_family(name):
     """Runs in its own worker process: builds every stock this family module
     owns in one shared digitize+fit pass (its own PRODUCTS dict already
     caches that pass at module-global scope -- see main.py's own docstring),
-    returns {slug: (source_profile, pack_profile)} for all of them at once."""
+    returns {slug: (source_profile, pack_profile)} for all of them at once.
+
+    Reads trix_common.FIT_SEMAPHORE, which main() sets as a plain module
+    global BEFORE creating the outer ProcessPoolExecutor -- NOT passed as a
+    submit() argument, because a multiprocessing.Semaphore (like the
+    Value/Lock pair it replaced) can only be pickled through
+    Process(args=...)'s own inheritance machinery (`RuntimeError:
+    Synchronized objects should only be shared between processes through
+    inheritance`, confirmed directly against the Value/Lock predecessor),
+    which submit()'s call queue doesn't use even under the fork start
+    method. Fork-based process creation (see FAMILY_MODULES's own comment)
+    instead duplicates the parent's already-open shared-memory/semaphore
+    file descriptors as part of forking the whole process image, so a plain
+    global assigned before the pool exists is enough -- no explicit passing
+    needed, same mechanism _FAMILY_BY_NAME/_SINGLE_BY_NAME already rely on
+    for the picklability workaround they exist for."""
     module = _FAMILY_BY_NAME[name]
     return {slug: entry.build() for slug, entry in module.PRODUCTS.items()}
 
@@ -148,16 +167,18 @@ def main():
 
     cpu_count = os.cpu_count() or 1
     outer_workers = min(len(jobs), cpu_count)
-    # What's left of the machine's cores per outer job, for that job's own
-    # inner ProcessPoolExecutor (trix_common.fit_dev_times_parallel) to use --
-    # set before the outer pool is created so forked workers inherit it
-    # (see trix_common.INNER_WORKERS's own comment). len(jobs)==1 (e.g. a
-    # narrow --only within one family) correctly gets the whole machine.
-    trix_common.INNER_WORKERS = max(1, cpu_count // max(1, len(jobs)))
+    # Global hard cap on concurrently-EXECUTING fits (see
+    # trix_common.FIT_SEMAPHORE's own comment for the full history of what
+    # this replaced and why). Set as a plain module global BEFORE the outer
+    # pool is created, so every forked worker -- and every process any of
+    # them go on to fork themselves, at any depth -- inherits a handle to
+    # the same underlying shared semaphore (same mechanism _FAMILY_BY_NAME/
+    # _SINGLE_BY_NAME already rely on for their own picklability workaround).
+    trix_common.FIT_SEMAPHORE = mp.Semaphore(cpu_count)
 
     print(f"Building {len(jobs)} product famil{'y' if len(jobs) == 1 else 'ies'} "
           f"across {outer_workers} process{'es' if outer_workers != 1 else ''} "
-          f"({cpu_count} CPUs, inner fit budget {trix_common.INNER_WORKERS}/job)")
+          f"({cpu_count} CPUs, fit semaphore capped at {cpu_count})")
 
     results = {}
     with ProcessPoolExecutor(max_workers=outer_workers) as ex:

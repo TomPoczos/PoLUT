@@ -194,27 +194,3 @@ def evaluate_layers(fit: NormCdfsFit, x_grid: np.ndarray) -> np.ndarray:
     for i, (c, a, s) in enumerate(zip(fit.centers, fit.amplitudes, fit.sigmas)):
         layers[:, i] = a * norm.cdf((x_grid - c) / s)
     return layers
-
-
-def plot_fit_qa(log_exposure_data, density_data, fit: NormCdfsFit, x_grid, title, out_path):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    total = evaluate_total(fit, x_grid)
-    layers = evaluate_layers(fit, x_grid)
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    ax.scatter(log_exposure_data, density_data, s=18, color="black", zorder=5,
-               label="digitized points")
-    ax.plot(x_grid, total, color="tab:red", lw=2, label="fitted norm_cdfs (total)")
-    for i in range(layers.shape[1]):
-        ax.plot(x_grid, layers[:, i], lw=1, ls="--", label=f"layer {i}")
-    ax.set_xlabel("log_exposure (canonical grid)")
-    ax.set_ylabel("density")
-    ax.set_title(f"{title}\nR²={fit.r_squared:.5f}  max residual={fit.max_residual:.4f}")
-    ax.legend(fontsize=8)
-    ax.set_xlim(min(log_exposure_data) - 0.3, max(log_exposure_data) + 0.3)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)

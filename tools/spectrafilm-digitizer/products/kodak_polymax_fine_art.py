@@ -437,9 +437,6 @@ def build_grade(grade):
     # own module docstring: compute_density_spectral() adds base_density back separately.
     ys = np.array([p[1] for p in points]) - base_density
     fit = dm.fit_norm_cdfs(xs, ys, n_layers=N_LAYERS)
-    dm.plot_fit_qa(xs, ys, fit, grids.LOG_EXPOSURE,
-                    title=f"Kodak Polymax Fine-Art Paper, {grade} (Dektol 1:2, 90s, net density)",
-                    out_path=OUT_DIR / "qa" / f"density_fit_{grade}.png")
     print(f"  {grade} ({panel_id}): R^2={fit.r_squared:.5f} max_residual={fit.max_residual:.4f}")
 
     fit_report = {
