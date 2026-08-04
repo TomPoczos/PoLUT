@@ -240,9 +240,13 @@ def characteristic_curve_points_raster(
     scan[:, :fleft + 1] = False
     scan[:, fright:] = False
 
-    x_range = trace_x_range if trace_x_range is not None else (fleft + 1, fright - 1)
+    if trace_x_range is not None:
+        lo, hi = trace_x_range
+        x_range = (fleft + 1 if lo is None else lo, fright - 1 if hi is None else hi)
+    else:
+        x_range = (fleft + 1, fright - 1)
     tr = trace_curves(scan, n_curves=1, x_range=x_range, max_y_jump=max_y_jump,
-                       max_gap_columns=max_gap_columns)[0]
+                       max_gap_columns=max_gap_columns, bridge_rows=grid_rows, ink=ink)[0]
     if not tr:
         raise RuntimeError("raster column-scan found no curve trace -- check gridline/tick-stub filtering")
 

@@ -85,6 +85,20 @@ def _hd_chart():
         film_id="_unused", region_bbox=region, extraction_method="vector_position",
         monotonic_direction="increasing", min_trace_points=50,
         split_on_x_reversal=True, reversal_run_length=5,
+        # 7min and 8.5min each lose their last ~5 points (right at the
+        # shoulder, next to the chart's own right border) as a separate tiny
+        # drawing object -- a real pen lift in the source PDF, not a
+        # digitization artifact -- and the two curves' own tail fragments
+        # sit closer to EACH OTHER (~3px) than either does to its own true
+        # parent curve's endpoint (~7-9px), so plain proximity-based
+        # cross_object_merge mismatches or transitively fuses them. Confirmed
+        # via digitizer_core.py's extract_traces_in_region(min_points=1)
+        # probe: without this, curves' points_dense stopped at log_exposure
+        # -0.18/-0.28 instead of reaching the panel's real ~0.0 edge like
+        # 5.5min/10min do. merge_strategy="chain_slope" (see that function's
+        # own docstring for this exact case) discriminates the two tail
+        # fragments correctly by local trajectory instead of raw distance.
+        cross_object_merge=True, merge_strategy="chain_slope",
         metadata={"developer": "HC-110 (Dilution B)", "process": "Large tank, 70F (21C)",
                   "densitometry": "Diffuse visual", "exposure": "Daylight, 1/50 second"},
     )

@@ -81,6 +81,26 @@ def build():
         stock=STOCK, name=NAME, target_print=TARGET_PRINT,
         dev_time_min=DEV_TIME_MIN, datasource=DATASOURCE, out_root=OUT_DIR,
         char_extraction="raster",
+        # Right edge trimmed to pixel column 958 (data_x ~= 4.15), just past
+        # this datasheet's own real curve endpoint -- confirmed 2026-08-04:
+        # the digitized/printed curve itself genuinely stops around column
+        # 955 (Ilford's own chart doesn't plot all the way to the frame's
+        # right edge). Past that, the only ink left in the panel is the
+        # "2.0" density gridline's own row (246-249, with a 1px
+        # anti-aliased fringe at 250) running uninterrupted the rest of the
+        # frame's width. raster_tracer's gridline-row bridging (needed to
+        # fix real curve/gridline crossings elsewhere on this same curve --
+        # see raster_tracer.py's own module docstring) can't tell "curve
+        # ink briefly interrupted by a real gridline" apart from "no more
+        # curve at all, just a static gridline sitting nearby" from local
+        # pixel evidence alone -- confirmed it was riding that gridline
+        # dead flat at density=2.0 all the way to the frame edge before
+        # this bound was added, once `trace_curves`'s own quiet-then-
+        # reacquire behavior spliced onto it past the real data's end (see
+        # that function's own docstring for this known, general failure
+        # mode). Trimming to the curve's own real, verified extent is the
+        # documented remedy for exactly this case, not a new mechanism.
+        char_raster_kwargs={"trace_x_range": (None, 958)},
     )
     return source_profile, pack_profile
 

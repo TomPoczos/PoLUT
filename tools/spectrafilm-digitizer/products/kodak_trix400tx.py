@@ -145,6 +145,15 @@ def _tmax_chart():
         # split_on_x_reversal cuts it where the pen direction reverses,
         # exactly where the merged trace hands off from one curve to the next.
         split_on_x_reversal=True, reversal_run_length=5,
+        # 7min separately loses its last ~5 points (right at the shoulder,
+        # next to the chart's own right border) as a separate tiny drawing
+        # object -- same real pen-lift artifact as kodak_trix400txt.py's
+        # HC-110 panel (see digitizer_core.py's extract_traces_in_region
+        # docstring, merge_strategy="chain_slope"), confirmed the same way:
+        # points_dense stopped at log_exposure -0.11 instead of the panel's
+        # real ~0.0 edge like the other 3 curves. chain_slope reattaches it
+        # by local trajectory match instead of raw endpoint distance.
+        cross_object_merge=True, merge_strategy="chain_slope",
         metadata={"developer": "T-MAX", "process": "Small tank, 75F (24C)",
                   "densitometry": "Diffuse visual", "exposure": "Daylight, 1/50 second"},
     )

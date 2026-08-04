@@ -186,7 +186,8 @@ def build_scan_mask(ink, grid_rows, grid_cols, text_max_width=60, text_max_heigh
     text/legend blobs, and (when `frame_bounds` is given) minor tick-mark
     stubs removed -- see module docstring for why these are two distinct
     filters, not one. Both run on ONE shared connected-components labeling
-    pass over the gridline-deleted ink (not two separate passes).
+    pass over the gridline-ROW-deleted ink (NOT gridline-col-deleted too --
+    see below for why that distinction matters, 2026-08-04).
 
     Text/legend removal: a component is "text" if BOTH its bounding-box
     width is under `text_max_width` px AND its height is under
@@ -201,6 +202,27 @@ def build_scan_mask(ink, grid_rows, grid_cols, text_max_width=60, text_max_heigh
     tuning per file's DPI/font size; verify via the saved scan-mask image
     before trusting it blindly on a new file.
 
+    The labeling pass deletes gridline ROWS but deliberately leaves
+    gridline COLUMNS in place -- confirmed needed on Ilford Delta 100
+    (2026-08-04): deleting whole gridline columns before labeling chops
+    the curve into a separate connected component between every pair of
+    vertical gridlines it crosses. Where two vertical gridlines sit close
+    together relative to the curve's local slope, that chopped-off
+    fragment can itself be small enough (confirmed: one real 23x18px
+    fragment) to satisfy the text-size test above even though it's 100%
+    real curve ink -- silently deleting a whole multi-column stretch of
+    the actual trace, not text. Leaving columns undeleted for labeling
+    keeps the curve as one long, unambiguously-not-text component across
+    a vertical-gridline crossing (confirmed: the same stretch measures
+    151x108 once its neighboring segments are still attached) while still
+    being deleted from the actual scan mask down below, same as before --
+    only the classification step changes, not what's ultimately excluded.
+    Gridlines themselves are already thin, so this doesn't blind the
+    tick-stub check either: a real gridline landing in `objs` below still
+    reads as thin-and-border-touching (correctly harmless, since its own
+    pixels are removed unconditionally in the final mask construction
+    regardless of whether this loop also flags it).
+
     Tick-stub removal (only when `frame_bounds=(ftop, fbottom, fleft,
     fright)` is given, as returned by `detect_gridlines`'s own
     grid_rows.min()/.max()/grid_cols.min()/.max()): a component is a
@@ -208,7 +230,7 @@ def build_scan_mask(ink, grid_rows, grid_cols, text_max_width=60, text_max_heigh
     AND touches the frame border (its bbox comes within `border_touch_tol`
     px of ftop/fbottom/fleft/fright -- a generous default because the
     border itself is several pixels thick pre-deletion, so a stub's own
-    bbox after gridline-row/col deletion starts a few pixels short of the
+    bbox after gridline-row deletion starts a few pixels short of the
     raw frame-bound value, not exactly at it; confirmed on Delta 100 a
     tolerance of 2px was too tight to catch either of its two real stubs,
     10px caught both cleanly). A component satisfying both the text
@@ -216,7 +238,6 @@ def build_scan_mask(ink, grid_rows, grid_cols, text_max_width=60, text_max_heigh
     are not mutually exclusive, both are just "not curve ink"."""
     deleted = ink.copy()
     deleted[grid_rows, :] = False
-    deleted[:, grid_cols] = False
     labeled, n = ndimage.label(deleted, structure=np.ones((3, 3)))
     objs = ndimage.find_objects(labeled)
     remove_mask = np.zeros_like(ink)
@@ -250,26 +271,110 @@ def build_scan_mask(ink, grid_rows, grid_cols, text_max_width=60, text_max_heigh
     return scan
 
 
-def _cluster_column(rows, max_gap=3):
+def _cluster_column(rows, max_gap=3, bridge_rows=None, ink_rows=None,
+                     max_bridge_extend=10, max_bridge_fragment_height=18):
     """Groups a sorted 1-D array of ink row-indices (one image column) into
     clusters, allowing gaps up to `max_gap` px within one cluster (thin
     strokes have small anti-aliasing/skip gaps). Returns a list of cluster
-    centroids (float)."""
+    centroids (float).
+
+    `bridge_rows`/`ink_rows` (both required together to enable bridging):
+    `bridge_rows` is the set of row-indices `build_scan_mask` deleted as a
+    gridline; `ink_rows` is this SAME column's row-index array from the
+    ORIGINAL, pre-gridline-deletion ink mask. Confirmed needed on Ilford
+    Delta 100 (2026-08-04): where the traced curve crosses a gridline at a
+    shallow angle over more than one column, deleting the gridline's
+    row-band across the WHOLE column splits what was one continuous
+    diagonal stroke into ink fragments that no longer touch under
+    `max_gap`. Without bridging, `trace_curves`'s nearest-active-trace
+    continuation flips between same-curve fragments column to column,
+    producing a real zigzag right at the crossing.
+
+    Each raw fragment is grown outward (`extend()` below), one row at a
+    time on each side, through rows that are BOTH in `bridge_rows` (i.e.
+    deleted only because they're a gridline, not because they were
+    genuinely blank or filtered as text/tick-stub) AND present in
+    `ink_rows` (i.e. the ORIGINAL image really did have curve ink there,
+    confirmed by direct inspection to be continuous across every real
+    crossing checked -- the gap is an artifact of gridline deletion, not a
+    real break in the stroke). Growth is capped at `max_bridge_extend`
+    rows per side and the grown fragment is discarded back to its
+    original bounds if its total height would exceed
+    `max_bridge_fragment_height`. Both caps matter for the same reason:
+    a column can ALSO contain a large, mostly-vertical ink blob that
+    isn't the curve at all -- confirmed on Delta 100 at the column
+    immediately next to (not inside) a detected vertical gridline band,
+    where partial anti-aliasing bleed produces a genuinely continuous
+    ~150px-tall ink run that also happens to pass through the SAME
+    gridline's deleted row-band. Growing into real, continuous ink alone
+    (no size check) reconnects that blob's two halves into one nonsense
+    centroid that lands close enough to the real trace to be silently
+    accepted -- confirmed as a real regression from an earlier version of
+    this bridge that only checked gap membership. A real curve stroke
+    caught mid-crossing is at most ~15px tall in every case measured so
+    far, so capping growth rules the blob out without reopening that
+    hole. Growing outward independently per fragment (not merely
+    re-averaging two already-adjacent fragments) also matters on its own:
+    confirmed on Delta 100 that a crossing can leave only ONE surviving
+    fragment with no sibling on the other side (the curve's real ink
+    beyond the deleted band was itself entirely inside the deleted band
+    at that column), which a merge-only approach can't recover at all --
+    it needs the same one-sided growth this does.
+
+    After growth, fragments are re-clustered by adjacency (still `max_gap`)
+    since two independently-grown fragments can now touch or overlap.
+    Falls back to plain `max_gap` clustering, no bridging, if either
+    `bridge_rows` or `ink_rows` is omitted."""
     if len(rows) == 0:
         return []
-    clusters = []
+    raw = []
     cur = [rows[0]]
     for r in rows[1:]:
         if r - cur[-1] <= max_gap:
             cur.append(r)
         else:
-            clusters.append(cur)
+            raw.append(cur)
             cur = [r]
-    clusters.append(cur)
-    return [float(np.mean(c)) for c in clusters]
+    raw.append(cur)
+
+    if bridge_rows is None or ink_rows is None:
+        return [float(np.mean(c)) for c in raw]
+
+    bridge = set(int(r) for r in bridge_rows)
+    ink_set = set(int(r) for r in ink_rows)
+
+    def extend(frag):
+        grown = set(frag)
+        lo, hi = min(grown), max(grown)
+        r, n = lo - 1, 0
+        while r in bridge and r in ink_set and n < max_bridge_extend:
+            grown.add(r)
+            r -= 1
+            n += 1
+        r, n = hi + 1, 0
+        while r in bridge and r in ink_set and n < max_bridge_extend:
+            grown.add(r)
+            r += 1
+            n += 1
+        if max(grown) - min(grown) + 1 > max_bridge_fragment_height:
+            return set(frag)  # growth made it implausibly thick -- revert
+        return grown
+
+    flat = sorted(set().union(*(extend(c) for c in raw)))
+    merged = []
+    cur = [flat[0]]
+    for r in flat[1:]:
+        if r - cur[-1] <= max_gap:
+            cur.append(r)
+        else:
+            merged.append(cur)
+            cur = [r]
+    merged.append(cur)
+    return [float(np.mean(c)) for c in merged]
 
 
-def trace_curves(scan_mask, n_curves, x_range=None, max_y_jump=15, max_gap_columns=8, cluster_gap=3):
+def trace_curves(scan_mask, n_curves, x_range=None, max_y_jump=15, max_gap_columns=8, cluster_gap=3,
+                  bridge_rows=None, ink=None):
     """Column-by-column multi-object tracking: maintains up to `n_curves`
     active traces, assigning each column's ink-clusters to whichever active
     trace's last-known y is closest (classic nearest-neighbor
@@ -278,6 +383,18 @@ def trace_curves(scan_mask, n_curves, x_range=None, max_y_jump=15, max_gap_colum
     (skipped, not deleted) for up to `max_gap_columns` consecutive columns
     with no matching cluster (dash gaps, or a column that fell entirely on
     a removed gridline) before considering it ended.
+
+    `bridge_rows`: forwarded to `_cluster_column()` -- see that function's
+    own docstring. Pass the same `grid_rows` array `detect_gridlines()`
+    returned for this image so a within-column gap made entirely of
+    deleted gridline rows re-fuses into one cluster instead of splitting
+    the curve's own ink where it crosses that gridline. `ink`: the full
+    ORIGINAL (pre-gridline-deletion) ink mask `scan_mask` was derived
+    from, same shape -- also forwarded to `_cluster_column()` (as that
+    column's own `ink_rows`) so a bridge recomputes its centroid from the
+    real, continuous curve ink rather than the two unevenly-sized
+    fragments deletion left behind. Only consulted when `bridge_rows` is
+    also given.
 
     Where multiple traces' clusters have collapsed onto the same shared
     pixel-cluster (curves visually coincident -- confirmed real and common
@@ -308,7 +425,8 @@ def trace_curves(scan_mask, n_curves, x_range=None, max_y_jump=15, max_gap_colum
 
     for x in range(x0, x1):
         col_rows = np.where(scan_mask[:, x])[0]
-        clusters = _cluster_column(col_rows, max_gap=cluster_gap)
+        ink_rows = np.where(ink[:, x])[0] if (bridge_rows is not None and ink is not None) else None
+        clusters = _cluster_column(col_rows, max_gap=cluster_gap, bridge_rows=bridge_rows, ink_rows=ink_rows)
         if not clusters:
             for i in range(n_curves):
                 if active_y[i] is not None:

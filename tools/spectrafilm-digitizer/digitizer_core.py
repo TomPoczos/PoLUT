@@ -530,7 +530,8 @@ def _flatten_path_item(item, samples_per_unit_length=0.25, min_samples=2, max_sa
 
 def extract_traces_in_region(page, region_bbox, min_points=12, stroke_rgb=None, tol=0.15, continuity_tol=1.5,
                               cross_object_merge=False, merge_strategy="proximity", merge_tol_multiplier=6,
-                              strict_chain_merge=False, split_on_x_reversal=False, reversal_run_length=5):
+                              strict_chain_merge=False, split_on_x_reversal=False, reversal_run_length=5,
+                              slope_fit_points=6, slope_min_frag_points=3, slope_residual_tol=1.0):
     """Returns a list of distinct curve traces (each a list of (x,y) page-space
     points) confined to region_bbox, filtering out short chart-furniture
     drawings (axis frame, tick marks, gridlines, legend swatches) via a
@@ -560,7 +561,41 @@ def extract_traces_in_region(page, region_bbox, min_points=12, stroke_rgb=None, 
     single-point digitization noise near a flat toe) means a second curve
     has started. Not a safe default: some genuinely single curves could
     have an intentional local x reversal (none seen in this corpus so far,
-    but not provably impossible), so this stays opt-in per file."""
+    but not provably impossible), so this stays opt-in per file.
+
+    `merge_strategy="chain_slope"` (opt-in): for charts where several curves
+    run close enough together that a short leading/trailing fragment (drawn
+    as its own PDF object -- a pen lift right where a curve nearly touches a
+    neighbor, or gets crossed by an unrelated element like a leader line)
+    sits closer, by raw endpoint DISTANCE, to a NEIGHBORING curve's own
+    orphan fragment than to its own parent curve's endpoint. Confirmed on
+    f9-Tri-X_Pan.pdf's TXT/HC-110 panel (kodak_trix400txt.py): the 7min and
+    8.5min curves each lose their last ~5 points -- right at the shoulder,
+    next to the chart's own right border -- as a separate tiny drawing
+    object, and the two curves' own tail fragments sit only ~3px apart from
+    EACH OTHER in y, closer to each other than either is to its own true
+    parent's endpoint (7.2px vs 8.6px -- and backwards: the closer raw
+    distance is the WRONG pairing). `merge_strategy="proximity"` either
+    mismatches or (with `strict_chain_merge`) transitively fuses both
+    curves' tails into one bogus merged trace, since raw distance can't
+    discriminate two candidates that are both plausibly "close enough."
+    What does discriminate them is each parent curve's own local
+    trajectory: fit a line through the last `slope_fit_points` real points
+    at each candidate main trace's (>= min_points) own open end, extrapolate
+    it across the gap, and score each orphan fragment (`slope_min_frag_points`
+    <= len < min_points -- big enough to not be tick-mark/leader-line noise,
+    too small to already count as a real trace) by how well ITS points agree
+    with that extrapolated line (mean abs y-residual), not by how close its
+    raw endpoint sits. Confirmed on the TXT/HC-110 case: the correct
+    pairing's residual is ~0.1px, the wrong pairing's is ~8px -- decisively
+    separated despite the endpoints themselves being closer in the wrong
+    pairing. Still gated by the same `merge_tol` gap requirement as
+    `"proximity"` (a good slope fit far past a trace's real end is not
+    trusted just because the residual happens to be low), and by
+    `slope_residual_tol` (rejects attaching a fragment to its best-scoring
+    candidate if even that residual is too large to be a real continuation,
+    leaving the fragment to be dropped by the usual `min_points` filter
+    below -- no regression vs. leaving `cross_object_merge` off)."""
     x0, y0, x1, y1 = region_bbox
     raw_subtraces = []
     for d in page.get_drawings():
@@ -781,6 +816,50 @@ def extract_traces_in_region(page, region_bbox, min_points=12, stroke_rgb=None, 
                     if fi not in used_f:
                         chains.append([frags[fi]])
             merged = [sum(ch, []) for ch in chains]
+    elif cross_object_merge and merge_strategy == "chain_slope":
+        merge_tol = continuity_tol * merge_tol_multiplier
+        mains = [tr for tr in merged if len(tr) >= min_points]
+        frags = [tr for tr in merged if slope_min_frag_points <= len(tr) < min_points]
+        attached = {id(m): [] for m in mains}
+        for frag in frags:
+            fx = np.array([p[0] for p in frag])
+            fy = np.array([p[1] for p in frag])
+            best_resid, best_main = None, None
+            for m in mains:
+                for pts in (m[:slope_fit_points], m[-slope_fit_points:]):
+                    if len(pts) < 2:
+                        continue
+                    anchor = pts[0]
+                    gap = min(math.hypot(anchor[0] - fx[k], anchor[1] - fy[k]) for k in range(len(fx)))
+                    if gap > merge_tol:
+                        continue
+                    mx = np.array([p[0] for p in pts])
+                    my = np.array([p[1] for p in pts])
+                    if mx.max() - mx.min() < 1e-6:
+                        continue  # near-vertical local segment -- no x-based slope to extrapolate
+                    slope, intercept = np.polyfit(mx, my, 1)
+                    resid = float(np.mean(np.abs((slope * fx + intercept) - fy)))
+                    if best_resid is None or resid < best_resid:
+                        best_resid, best_main = resid, m
+            if best_main is not None and best_resid <= slope_residual_tol:
+                attached[id(best_main)].append(frag)
+        merged = []
+        for m in mains:
+            extra = attached[id(m)]
+            # Sort by x rather than just appending `extra` after `m` -- `m`'s
+            # own points run shoulder-to-toe (descending x) and an attached
+            # fragment sits PAST the shoulder end (even higher x), so a bare
+            # append put it after the toe end in list order. Harmless for the
+            # numeric fit (digitize_chart's own binning re-sorts by x before
+            # use), but render_qa_overlay() draws "raw" traces in raw list
+            # order, so the unsorted append drew a bogus straight line
+            # jumping from the toe all the way back to the reattached
+            # fragment. Sorting here (order doesn't encode real pen
+            # direction for this QA-facing list; nothing downstream depends
+            # on it) fixes that without needing to know which end matched.
+            combined = sorted(m + sum(extra, []), key=lambda p: p[0]) if extra else m
+            merged.append(combined)
+        merged.extend(frags)  # unattached fragments still go through the usual min_points filter below
     traces = []
     for sub in merged:
         if sub is None or len(sub) < min_points:
